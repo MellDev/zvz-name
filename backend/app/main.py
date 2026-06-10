@@ -5,6 +5,7 @@ from .api.routes import router
 from .core.config import settings
 from .db.session import engine
 from .db.base import Base
+import logging
 
 app = FastAPI(
     title='ZvZ Name API',
@@ -24,7 +25,10 @@ app.include_router(router)
 
 @app.on_event('startup')
 def on_startup() -> None:
-    Base.metadata.create_all(bind=engine)
+    try:
+        Base.metadata.create_all(bind=engine)
+    except Exception as e:
+        logging.exception('Database initialization failed on startup; continuing without DB: %s', e)
 
 @app.get('/')
 def health_check() -> dict:

@@ -1,13 +1,18 @@
 from pathlib import Path
 from typing import List
 
-from pydantic import BaseSettings, PostgresDsn, field_validator
+try:
+    from pydantic_settings import BaseSettings
+except Exception:
+    from pydantic import BaseSettings
+
+from pydantic import field_validator
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 class Settings(BaseSettings):
-    DATABASE_URL: PostgresDsn
-    SECRET_KEY: str
+    DATABASE_URL: str = 'sqlite+pysqlite:///:memory:'
+    SECRET_KEY: str = 'test-secret'
     DISCORD_CLIENT_ID: str | None = None
     DISCORD_CLIENT_SECRET: str | None = None
     DISCORD_REDIRECT_URI: str | None = None
