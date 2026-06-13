@@ -6,6 +6,7 @@ from .core.config import settings
 from .db.session import engine
 from .db.base import Base
 import logging
+from sqlalchemy import inspect, text
 
 app = FastAPI(
     title='ZvZ Name API',
@@ -15,7 +16,7 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"] if settings.BACKEND_CORS_ORIGINS == ['*'] else settings.BACKEND_CORS_ORIGINS,
+    allow_origins=settings.cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -23,10 +24,72 @@ app.add_middleware(
 
 app.include_router(router)
 
+def ensure_runtime_schema() -> None:
+    inspector = inspect(engine)
+    table_columns = {
+        table: {column['name'] for column in inspector.get_columns(table)}
+        for table in inspector.get_table_names()
+    }
+    dialect = engine.dialect.name
+
+    def add_column(table: str, column: str, ddl: str) -> None:
+        if column not in table_columns.get(table, set()):
+            with engine.begin() as conn:
+                conn.execute(text(f'ALTER TABLE {table} ADD COLUMN {ddl}'))
+
+    string_type = 'VARCHAR(120)' if dialect != 'sqlite' else 'VARCHAR(120)'
+    add_column('zvz_events', 'content_type', "content_type VARCHAR(80) NOT NULL DEFAULT 'ZvZ'")
+    add_column('zvz_events', 'mount_gallop_requirement', 'mount_gallop_requirement INTEGER NOT NULL DEFAULT 120')
+    add_column('zvz_events', 'mount_requirement_note', 'mount_requirement_note TEXT')
+    add_column('users', 'active', 'active BOOLEAN NOT NULL DEFAULT TRUE')
+    add_column('users', 'is_leader', 'is_leader BOOLEAN NOT NULL DEFAULT FALSE')
+    add_column('checkins', 'build_id', 'build_id INTEGER')
+    add_column('checkins', 'player_nick_snapshot', f'player_nick_snapshot {string_type}')
+    add_column('builds', 'role', "role VARCHAR(50) NOT NULL DEFAULT 'DPS'")
+    add_column('builds', 'offhand', f'offhand {string_type}')
+    add_column('builds', 'offhand_item_id', f'offhand_item_id {string_type}')
+    add_column('builds', 'offhand_icon_url', 'offhand_icon_url VARCHAR(500)')
+    add_column('builds', 'helmet', f'helmet {string_type}')
+    add_column('builds', 'helmet_item_id', f'helmet_item_id {string_type}')
+    add_column('builds', 'helmet_icon_url', 'helmet_icon_url VARCHAR(500)')
+    add_column('builds', 'chest', f'chest {string_type}')
+    add_column('builds', 'chest_item_id', f'chest_item_id {string_type}')
+    add_column('builds', 'chest_icon_url', 'chest_icon_url VARCHAR(500)')
+    add_column('builds', 'boots', f'boots {string_type}')
+    add_column('builds', 'boots_item_id', f'boots_item_id {string_type}')
+    add_column('builds', 'boots_icon_url', 'boots_icon_url VARCHAR(500)')
+    add_column('builds', 'cape', f'cape {string_type}')
+    add_column('builds', 'food', f'food {string_type}')
+    add_column('builds', 'potion', f'potion {string_type}')
+    add_column('builds', 'recommended_mount', f'recommended_mount {string_type}')
+    add_column('builds', 'required_level', 'required_level INTEGER')
+    add_column('builds', 'updated_at', 'updated_at TIMESTAMP')
+    add_column('event_builds', 'max_slots', 'max_slots INTEGER NOT NULL DEFAULT 1')
+    add_column('build_requests', 'weapon_power', 'weapon_power INTEGER')
+
+    with engine.begin() as conn:
+        if dialect == 'postgresql':
+            conn.execute(text(
+                'UPDATE checkins AS c SET player_nick_snapshot = u.albion_nick '
+                'FROM users AS u WHERE c.user_id = u.id AND c.player_nick_snapshot IS NULL'
+            ))
+        else:
+            conn.execute(text(
+                'UPDATE checkins SET player_nick_snapshot = '
+                '(SELECT users.albion_nick FROM users WHERE users.id = checkins.user_id) '
+                'WHERE player_nick_snapshot IS NULL'
+            ))
+        conn.execute(text(
+            "UPDATE users SET is_staff = TRUE, is_leader = TRUE, role = 'dev', active = TRUE "
+            "WHERE lower(trim(albion_nick)) IN ('anderson mello', 'anderson') "
+            "OR lower(trim(discord_name)) IN ('anderson mello', 'anderson')"
+        ))
+
 @app.on_event('startup')
 def on_startup() -> None:
     try:
         Base.metadata.create_all(bind=engine)
+        ensure_runtime_schema()
     except Exception as e:
         logging.exception('Database initialization failed on startup; continuing without DB: %s', e)
 
