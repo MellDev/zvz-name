@@ -4,8 +4,10 @@ __pycache__/
 *.pyo
 *.pyd
 venv/
+.venv/
 .env
 .env.*
+!env.example
 .idea/
 .vscode/
 *.sqlite3
