@@ -8,6 +8,7 @@ venv/
 .env
 .env.*
 !env.example
+!.env.example
 .idea/
 .vscode/
 *.sqlite3
@@ -24,6 +25,7 @@ yarn-error.log*
 package-lock.json
 yarn.lock
 pnpm-lock.yaml
+*.tsbuildinfo
 
 # Docker
 docker-compose.override.yml

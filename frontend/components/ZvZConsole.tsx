@@ -3,7 +3,7 @@
 import type { FormEvent, ReactNode } from 'react';
 import { useEffect, useMemo, useState } from 'react';
 
-type View = 'staff' | 'eventBuilds' | 'eventManage' | 'builds' | 'leader' | 'checkin' | 'player' | 'settings';
+type View = 'staff' | 'eventBuilds' | 'eventManage' | 'discord' | 'builds' | 'leader' | 'checkin' | 'player' | 'players' | 'settings';
 
 type Player = {
   id: number;
@@ -31,11 +31,15 @@ type Event = {
   guild_id: number;
   title: string;
   content_type: string;
+  caller?: string | null;
   event_date: string;
   status: string;
   created_by?: number | null;
   mount_gallop_requirement: number;
   mount_requirement_note?: string | null;
+  discord_message_extra?: string | null;
+  discord_message_url?: string | null;
+  discord_last_sync_at?: string | null;
 };
 
 type Mount = {
@@ -61,18 +65,22 @@ type Build = {
   weapon_name: string;
   weapon_item_id?: string | null;
   weapon_icon_url?: string | null;
+  weapon_skills?: string | null;
   offhand?: string | null;
   offhand_item_id?: string | null;
   offhand_icon_url?: string | null;
   helmet?: string | null;
   helmet_item_id?: string | null;
   helmet_icon_url?: string | null;
+  helmet_skills?: string | null;
   chest?: string | null;
   chest_item_id?: string | null;
   chest_icon_url?: string | null;
+  chest_skills?: string | null;
   boots?: string | null;
   boots_item_id?: string | null;
   boots_icon_url?: string | null;
+  boots_skills?: string | null;
   cape?: string | null;
   food?: string | null;
   potion?: string | null;
@@ -96,6 +104,7 @@ type Approval = {
   id: number;
   player_id: number;
   build_id: number;
+  caller?: string | null;
   approved: boolean;
   build_name?: string | null;
   player_nick?: string | null;
@@ -118,6 +127,57 @@ type AlbionWeaponVariant = {
   icon_url?: string | null;
   name?: string | null;
   name_en?: string | null;
+};
+
+type GearSlot = 'offhand' | 'helmet' | 'chest' | 'boots';
+type SimpleItemSlot = 'cape' | 'food' | 'potion';
+type BuildEditorSlot = 'weapon' | GearSlot | SimpleItemSlot;
+
+type BuildForm = {
+  name: string;
+  buildType: string;
+  role: string;
+  weaponBaseName: string;
+  weaponName: string;
+  weaponItemId: string;
+  weaponIconUrl: string;
+  weaponTier: string;
+  weaponEnchant: string;
+  weaponSkills: string;
+  offhand: string;
+  offhandBaseName: string;
+  offhandItemId: string;
+  offhandIconUrl: string;
+  offhandTier: string;
+  offhandEnchant: string;
+  helmet: string;
+  helmetBaseName: string;
+  helmetItemId: string;
+  helmetIconUrl: string;
+  helmetTier: string;
+  helmetEnchant: string;
+  helmetSkills: string;
+  chest: string;
+  chestBaseName: string;
+  chestItemId: string;
+  chestIconUrl: string;
+  chestTier: string;
+  chestEnchant: string;
+  chestSkills: string;
+  boots: string;
+  bootsBaseName: string;
+  bootsItemId: string;
+  bootsIconUrl: string;
+  bootsTier: string;
+  bootsEnchant: string;
+  bootsSkills: string;
+  cape: string;
+  food: string;
+  potion: string;
+  recommendedMount: string;
+  requiredLevel: string;
+  description: string;
+  mountNames: string[];
 };
 
 type StaffDashboard = {
@@ -144,6 +204,13 @@ type Checkin = {
   event_title?: string | null;
   build_name?: string | null;
   build_role?: string | null;
+};
+
+type DiscordPreview = {
+  event_id: number;
+  content: string;
+  message_url?: string | null;
+  last_sync_at?: string | null;
 };
 
 type BuildRequest = {
@@ -197,9 +264,60 @@ const emptyAnalytics: Analytics = {
   checkins: [],
 };
 
-const contentTypes = ['ZvZ', 'CTA', 'DG', 'Dungeon', 'Avalon', 'Gank', 'Defesa'];
+const contentTypes = ['ZvZ', 'CTA', 'Autorizacao de build', 'DG', 'Dungeon', 'Avalon', 'Gank', 'Defesa'];
+const fallbackBuildCallers = ['GAKUIA', 'SOLUS', 'DELTA'];
 const roles = ['Tank', 'DPS', 'Healer', 'Support', 'Debuff', 'Bomb Squad'];
 const enchantments = ['0', '1', '2', '3', '4'];
+const buildsPerPage = 6;
+
+function emptyBuildForm(): BuildForm {
+  return {
+    name: '',
+    buildType: 'CTA',
+    role: 'DPS',
+    weaponBaseName: '',
+    weaponName: '',
+    weaponItemId: '',
+    weaponIconUrl: '',
+    weaponTier: '',
+    weaponEnchant: '0',
+    weaponSkills: '',
+    offhand: '',
+    offhandBaseName: '',
+    offhandItemId: '',
+    offhandIconUrl: '',
+    offhandTier: '',
+    offhandEnchant: '0',
+    helmet: '',
+    helmetBaseName: '',
+    helmetItemId: '',
+    helmetIconUrl: '',
+    helmetTier: '',
+    helmetEnchant: '0',
+    helmetSkills: '',
+    chest: '',
+    chestBaseName: '',
+    chestItemId: '',
+    chestIconUrl: '',
+    chestTier: '',
+    chestEnchant: '0',
+    chestSkills: '',
+    boots: '',
+    bootsBaseName: '',
+    bootsItemId: '',
+    bootsIconUrl: '',
+    bootsTier: '',
+    bootsEnchant: '0',
+    bootsSkills: '',
+    cape: '',
+    food: '',
+    potion: '',
+    recommendedMount: '',
+    requiredLevel: '',
+    description: '',
+    mountNames: [],
+  };
+}
 
 function endpoint(apiBase: string, path: string) {
   return `${apiBase}${path}`;
@@ -281,14 +399,37 @@ function isDungeonContent(value?: string | null) {
   return ['dg', 'dungeon', 'dungeons'].includes((value ?? '').trim().toLowerCase());
 }
 
+function needsBuildCaller(value?: string | null) {
+  return ['zvz', 'cta', 'autorizacao de build', 'autorização de build'].includes((value ?? '').trim().toLowerCase());
+}
+
+function normalizedContentType(value?: string | null) {
+  return (value ?? '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .trim()
+    .toLowerCase();
+}
+
+function buildMatchesContentType(buildType?: string | null, contentType?: string | null) {
+  const buildValue = normalizedContentType(buildType);
+  const eventValue = normalizedContentType(contentType);
+  if (!buildValue || !eventValue) return false;
+  if (['dg', 'dungeon', 'dungeons'].includes(buildValue) && ['dg', 'dungeon', 'dungeons'].includes(eventValue)) return true;
+  return buildValue === eventValue;
+}
+
 export default function ZvZConsole({
   apiBaseUrl,
   initialView = 'staff',
+  initialEventId = '',
 }: {
   apiBaseUrl: string;
   initialView?: View;
+  initialEventId?: string;
 }) {
   const apiBase = apiBaseUrl.replace(/\/$/, '');
+  const lockedEventId = initialEventId ? String(initialEventId) : '';
   const [view, setView] = useState<View>(initialView);
   const [players, setPlayers] = useState<Player[]>([]);
   const [events, setEvents] = useState<Event[]>([]);
@@ -298,6 +439,9 @@ export default function ZvZConsole({
   const [buildRequests, setBuildRequests] = useState<BuildRequest[]>([]);
   const [albionWeapons, setAlbionWeapons] = useState<AlbionWeapon[]>([]);
   const [albionArmors, setAlbionArmors] = useState<AlbionWeapon[]>([]);
+  const [albionCapes, setAlbionCapes] = useState<AlbionWeapon[]>([]);
+  const [albionFoods, setAlbionFoods] = useState<AlbionWeapon[]>([]);
+  const [albionPotions, setAlbionPotions] = useState<AlbionWeapon[]>([]);
   const [dashboard, setDashboard] = useState<StaffDashboard>(emptyDashboard);
   const [analytics, setAnalytics] = useState<Analytics>(emptyAnalytics);
   const [checkins, setCheckins] = useState<Checkin[]>([]);
@@ -312,52 +456,25 @@ export default function ZvZConsole({
     eventDate: '',
     status: 'open',
     contentType: 'ZvZ',
+    caller: 'GAKUIA',
     mountGallopRequirement: '120',
     mountRequirementNote: '',
   });
-  const [buildForm, setBuildForm] = useState({
-    name: '',
-    buildType: 'CTA',
-    role: 'DPS',
-    weaponBaseName: '',
-    weaponName: '',
-    weaponItemId: '',
-    weaponIconUrl: '',
-    weaponTier: '',
-    weaponEnchant: '0',
+  const [buildForm, setBuildForm] = useState<BuildForm>(() => emptyBuildForm());
+  const [editingBuildId, setEditingBuildId] = useState<number | null>(null);
+  const [itemSearch, setItemSearch] = useState({
+    weapon: '',
     offhand: '',
-    offhandBaseName: '',
-    offhandItemId: '',
-    offhandIconUrl: '',
-    offhandTier: '',
-    offhandEnchant: '0',
     helmet: '',
-    helmetBaseName: '',
-    helmetItemId: '',
-    helmetIconUrl: '',
-    helmetTier: '',
-    helmetEnchant: '0',
     chest: '',
-    chestBaseName: '',
-    chestItemId: '',
-    chestIconUrl: '',
-    chestTier: '',
-    chestEnchant: '0',
     boots: '',
-    bootsBaseName: '',
-    bootsItemId: '',
-    bootsIconUrl: '',
-    bootsTier: '',
-    bootsEnchant: '0',
     cape: '',
     food: '',
     potion: '',
-    recommendedMount: '',
-    requiredLevel: '',
-    description: '',
-    mountNames: [] as string[],
   });
-  const [checkinForm, setCheckinForm] = useState({ nick: '', eventId: '', buildId: '', mount: '' });
+  const [activeBuildSlot, setActiveBuildSlot] = useState<BuildEditorSlot>('weapon');
+  const [buildsPage, setBuildsPage] = useState(1);
+  const [checkinForm, setCheckinForm] = useState({ nick: '', eventId: lockedEventId, buildId: '', mount: '' });
   const [requestWeaponPower, setRequestWeaponPower] = useState('');
   const [eventManageForm, setEventManageForm] = useState({ eventId: '', buildId: '', slots: '1' });
   const [eventEditForm, setEventEditForm] = useState({
@@ -366,21 +483,44 @@ export default function ZvZConsole({
     eventDate: '',
     status: 'open',
     contentType: 'ZvZ',
+    caller: 'GAKUIA',
     mountGallopRequirement: '120',
     mountRequirementNote: '',
+  });
+  const [approvalForm, setApprovalForm] = useState({
+    caller: 'GAKUIA',
+    buildId: '',
+    playerId: '',
+    buildSearch: '',
+    playerSearch: '',
   });
   const [authNickForm, setAuthNickForm] = useState('');
   const [availableBuilds, setAvailableBuilds] = useState<Build[]>([]);
   const [filters, setFilters] = useState({ eventId: '', playerId: '', contentType: '', role: '', buildId: '' });
+  const [eventSearch, setEventSearch] = useState('');
+  const [discordForm, setDiscordForm] = useState({ eventId: '', messageExtra: '', preview: '', messageUrl: '', lastSyncAt: '' });
 
   const selectedCheckinBuild = useMemo(
     () => availableBuilds.find((build) => String(build.id) === checkinForm.buildId),
     [availableBuilds, checkinForm.buildId],
   );
 
+  const filteredEvents = useMemo(() => {
+    const needle = eventSearch.trim().toLowerCase();
+    if (!needle) return events;
+    return events.filter((event) =>
+      `${event.title} ${event.content_type} ${event.caller ?? ''} ${event.status}`.toLowerCase().includes(needle),
+    );
+  }, [eventSearch, events]);
+
   const selectedManagedEvent = useMemo(
     () => events.find((event) => String(event.id) === eventManageForm.eventId) ?? null,
     [eventManageForm.eventId, events],
+  );
+
+  const selectedDiscordEvent = useMemo(
+    () => events.find((event) => String(event.id) === discordForm.eventId) ?? null,
+    [discordForm.eventId, events],
   );
 
   const managedEventBuilds = useMemo(
@@ -405,6 +545,18 @@ export default function ZvZConsole({
     () => buildRequests.filter((request) => String(request.event_id) === eventManageForm.eventId && request.status === 'pending'),
     [buildRequests, eventManageForm.eventId],
   );
+  const managedEventLinkableBuilds = useMemo(
+    () =>
+      selectedManagedEvent
+        ? builds.filter(
+            (build) =>
+              build.active &&
+              buildMatchesContentType(build.build_type, selectedManagedEvent.content_type) &&
+              !build.event_slots.some((slot) => slot.event_id === selectedManagedEvent.id),
+          )
+        : [],
+    [builds, selectedManagedEvent],
+  );
 
   const managedEventCheckinsByBuild = useMemo(() => {
     const groups = new Map<string, Checkin[]>();
@@ -424,12 +576,18 @@ export default function ZvZConsole({
     () => events.find((event) => String(event.id) === checkinForm.eventId) ?? null,
     [checkinForm.eventId, events],
   );
+  const lockedEventMissing = Boolean(lockedEventId && !loading && !selectedCheckinEvent);
 
   const selectedCheckinEventIsDungeon = isDungeonContent(selectedCheckinEvent?.content_type);
 
   const selectedAlbionWeapon = useMemo(
     () => albionWeapons.find((item) => item.name === buildForm.weaponBaseName),
     [albionWeapons, buildForm.weaponBaseName],
+  );
+
+  const editingBuild = useMemo(
+    () => builds.find((build) => build.id === editingBuildId) ?? null,
+    [builds, editingBuildId],
   );
 
   const mountsByName = useMemo(() => {
@@ -494,31 +652,86 @@ export default function ZvZConsole({
     () => players.find((player) => player.id === authSession?.userId) ?? null,
     [authSession?.userId, players],
   );
+  const activePlayers = useMemo(() => players.filter((player) => player.active), [players]);
+  const activeBuilds = useMemo(() => builds.filter((build) => build.active), [builds]);
+  const buildCallers = useMemo(() => {
+    const callerNames = players
+      .filter((player) => player.active && player.role === 'caller')
+      .map((player) => player.albion_nick.trim().toUpperCase())
+      .filter(Boolean);
+    return Array.from(new Set([...fallbackBuildCallers, ...callerNames])).sort();
+  }, [players]);
+  const buildsPageCount = Math.max(1, Math.ceil(builds.length / buildsPerPage));
+  const paginatedBuilds = useMemo(
+    () => builds.slice((buildsPage - 1) * buildsPerPage, buildsPage * buildsPerPage),
+    [builds, buildsPage],
+  );
+  const selectedApprovalPlayer = useMemo(
+    () => players.find((player) => String(player.id) === approvalForm.playerId) ?? null,
+    [approvalForm.playerId, players],
+  );
+  const selectedApprovalBuild = useMemo(
+    () => builds.find((build) => String(build.id) === approvalForm.buildId) ?? null,
+    [approvalForm.buildId, builds],
+  );
+  const selectedApproval = useMemo(
+    () =>
+      approvals.find(
+        (approval) =>
+          String(approval.player_id) === approvalForm.playerId &&
+          String(approval.build_id) === approvalForm.buildId &&
+          (approval.caller ?? '') === approvalForm.caller,
+      ) ?? null,
+    [approvalForm.buildId, approvalForm.caller, approvalForm.playerId, approvals],
+  );
 
   const canManage = Boolean(currentUser?.active && (currentUser.is_staff || currentUser.role === 'dev' || currentUser.role === 'staff'));
-  const canLead = Boolean(currentUser?.active && (currentUser.is_leader || currentUser.is_staff || ['leader', 'staff', 'dev'].includes(currentUser.role)));
+  const canEventManage = Boolean(currentUser?.active && (currentUser.is_leader || currentUser.is_staff || ['caller', 'leader', 'staff', 'dev'].includes(currentUser.role)));
+  const canLead = canEventManage;
   const pendingBuildRequests = useMemo(
     () => buildRequests.filter((request) => {
       if (request.status !== 'pending') return false;
       if (canManage) return true;
+      if (currentUser?.role === 'caller') return true;
       return request.event_created_by === currentUser?.id;
     }),
-    [buildRequests, canManage, currentUser?.id],
+    [buildRequests, canManage, currentUser?.id, currentUser?.role],
   );
 
   useEffect(() => {
-    if (!loading && !canManage && (view === 'staff' || view === 'eventBuilds' || view === 'eventManage' || view === 'builds' || view === 'settings')) {
+    if (!loading && !canEventManage && (view === 'staff' || view === 'eventBuilds' || view === 'eventManage')) {
       setView('checkin');
+    }
+    if (!loading && !canManage && (view === 'builds' || view === 'players' || view === 'settings')) {
+      setView(canEventManage ? 'staff' : 'checkin');
     }
     if (!loading && !canLead && view === 'leader') {
       setView('checkin');
     }
-  }, [canLead, canManage, loading, view]);
+  }, [canEventManage, canLead, canManage, loading, view]);
+
+  useEffect(() => {
+    setBuildsPage((current) => Math.min(Math.max(current, 1), buildsPageCount));
+  }, [buildsPageCount]);
 
   async function loadData() {
     setLoading(true);
     try {
-      const [playersData, eventsData, mountsData, buildsData, approvalsData, checkinsData, dashboardData, analyticsData, albionData, armorData] =
+      const [
+        playersData,
+        eventsData,
+        mountsData,
+        buildsData,
+        approvalsData,
+        checkinsData,
+        dashboardData,
+        analyticsData,
+        albionData,
+        armorData,
+        capeData,
+        foodData,
+        potionData,
+      ] =
         await Promise.all([
           request<Player[]>(apiBase, '/api/players/'),
           request<Event[]>(apiBase, '/api/events/'),
@@ -530,6 +743,9 @@ export default function ZvZConsole({
           request<Analytics>(apiBase, '/api/dashboard/analytics'),
           request<{ data: AlbionWeapon[] }>(apiBase, '/api/albion/weapons?limit=260&locale=pt-BR&grouped=true'),
           request<{ data: AlbionWeapon[] }>(apiBase, '/api/albion/weapons?limit=300&locale=pt-BR&grouped=true&item_type=armor'),
+          request<{ data: AlbionWeapon[] }>(apiBase, '/api/albion/weapons?limit=300&locale=pt-BR&grouped=true&item_type=cape'),
+          request<{ data: AlbionWeapon[] }>(apiBase, '/api/albion/weapons?limit=300&locale=pt-BR&grouped=true&item_type=food'),
+          request<{ data: AlbionWeapon[] }>(apiBase, '/api/albion/weapons?limit=300&locale=pt-BR&grouped=true&item_type=potion'),
         ]);
 
       setPlayers(playersData);
@@ -542,6 +758,9 @@ export default function ZvZConsole({
       setAnalytics(analyticsData);
       setAlbionWeapons(albionData.data);
       setAlbionArmors(armorData.data);
+      setAlbionCapes(capeData.data);
+      setAlbionFoods(foodData.data);
+      setAlbionPotions(potionData.data);
       setNotice((current) => (current.text === 'Conectando com a API...' ? { tone: 'info', text: '' } : current));
       if (window.localStorage.getItem('zvz_auth')) {
         try {
@@ -569,6 +788,10 @@ export default function ZvZConsole({
 
   useEffect(() => {
     const stored = window.localStorage.getItem('zvz_auth');
+    const storedNick = window.localStorage.getItem('zvz_last_nick');
+    if (storedNick) {
+      setCheckinForm((current) => ({ ...current, nick: current.nick || storedNick }));
+    }
     if (!stored) return;
     try {
       const parsed = JSON.parse(stored) as AuthSession;
@@ -581,6 +804,24 @@ export default function ZvZConsole({
       window.localStorage.removeItem('zvz_auth');
     }
   }, []);
+
+  useEffect(() => {
+    const nick = checkinForm.nick.trim();
+    if (nick) {
+      window.localStorage.setItem('zvz_last_nick', nick);
+    }
+  }, [checkinForm.nick]);
+
+  useEffect(() => {
+    if (!lockedEventId) return;
+    setView('checkin');
+    setCheckinForm((current) => ({
+      ...current,
+      eventId: lockedEventId,
+      buildId: '',
+      mount: '',
+    }));
+  }, [lockedEventId]);
 
   async function loginWithDiscord() {
     try {
@@ -649,6 +890,7 @@ export default function ZvZConsole({
         setAvailableBuilds(
           builds.filter((build) =>
             build.active &&
+            buildMatchesContentType(build.build_type, selectedCheckinEvent?.content_type) &&
             build.event_slots.some((slot) => String(slot.event_id) === checkinForm.eventId && slot.remaining_slots > 0),
           ),
         );
@@ -678,6 +920,22 @@ export default function ZvZConsole({
     return `https://render.albiononline.com/v1/item/${itemId}@${enchant}.png?quality=0&size=217&locale=pt-BR`;
   }
 
+  function filterAlbionItems(options: AlbionWeapon[], search: string) {
+    const needle = search.trim().toLowerCase();
+    if (!needle) return options;
+    return options.filter((item) => {
+      const text = [
+        item.name,
+        item.name_pt,
+        item.name_en,
+        item.item_id,
+        item.category,
+        ...(item.variants ?? []).map((variant) => `${variant.item_id ?? ''} ${variant.name ?? ''} ${variant.name_en ?? ''}`),
+      ].join(' ').toLowerCase();
+      return text.includes(needle);
+    });
+  }
+
   function chooseAlbionWeapon(name: string) {
     const weapon = albionWeapons.find((item) => item.name === name);
     const variant = weapon?.variants?.[0];
@@ -704,8 +962,6 @@ export default function ZvZConsole({
       weaponEnchant: enchant,
     });
   }
-
-  type GearSlot = 'offhand' | 'helmet' | 'chest' | 'boots';
 
   function slotFields(slot: GearSlot) {
     return {
@@ -772,6 +1028,35 @@ export default function ZvZConsole({
     }
   }
 
+  async function registerCheckinPlayer() {
+    const nick = checkinForm.nick.trim();
+    if (!nick) {
+      setNotice({ tone: 'error', text: 'Informe o nick Albion para cadastrar.' });
+      return;
+    }
+
+    setSaving(true);
+    try {
+      const player = await request<Player>(apiBase, '/api/players/register', {
+        method: 'POST',
+        body: JSON.stringify({
+          guild_id: 1,
+          albion_nick: nick,
+          discord_id: `nick:${nick.toLowerCase()}`,
+          discord_name: nick,
+        }),
+      });
+      window.localStorage.setItem('zvz_last_nick', player.albion_nick);
+      setCheckinForm((current) => ({ ...current, nick: player.albion_nick, buildId: '', mount: '' }));
+      setNotice({ tone: 'ok', text: `Nick ${player.albion_nick} cadastrado. Agora selecione o evento.` });
+      await loadData();
+    } catch (error) {
+      setNotice({ tone: 'error', text: error instanceof Error ? error.message : 'Falha ao cadastrar nick.' });
+    } finally {
+      setSaving(false);
+    }
+  }
+
   async function createEvent(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setSaving(true);
@@ -782,6 +1067,7 @@ export default function ZvZConsole({
           guild_id: 1,
           title: eventForm.title,
           content_type: eventForm.contentType,
+          caller: needsBuildCaller(eventForm.contentType) ? eventForm.caller : null,
           event_date: new Date(eventForm.eventDate).toISOString(),
           status: eventForm.status,
           mount_gallop_requirement: Number(eventForm.mountGallopRequirement || 120),
@@ -793,6 +1079,7 @@ export default function ZvZConsole({
         eventDate: '',
         status: 'open',
         contentType: 'ZvZ',
+        caller: 'GAKUIA',
         mountGallopRequirement: '120',
         mountRequirementNote: '',
       });
@@ -816,8 +1103,9 @@ export default function ZvZConsole({
         }),
       });
       setEventManageForm({ eventId: String(duplicated.id), buildId: '', slots: '1' });
-      setView('eventBuilds');
-      setNotice({ tone: 'ok', text: `Evento base criado com a composicao de ${source.title}.` });
+      startEventEdit(duplicated);
+      setView('staff');
+      setNotice({ tone: 'ok', text: `Evento duplicado. Edite o nome e abra quando estiver pronto.` });
       await loadData();
     } catch (error) {
       setNotice({ tone: 'error', text: error instanceof Error ? error.message : 'Falha ao duplicar evento.' });
@@ -846,6 +1134,7 @@ export default function ZvZConsole({
       eventDate: event.event_date.slice(0, 16),
       status: event.status,
       contentType: event.content_type,
+      caller: event.caller ?? 'GAKUIA',
       mountGallopRequirement: String(event.mount_gallop_requirement ?? 120),
       mountRequirementNote: event.mount_requirement_note ?? '',
     });
@@ -861,6 +1150,7 @@ export default function ZvZConsole({
         body: JSON.stringify({
           title: eventEditForm.title,
           content_type: eventEditForm.contentType,
+          caller: needsBuildCaller(eventEditForm.contentType) ? eventEditForm.caller : null,
           event_date: new Date(eventEditForm.eventDate).toISOString(),
           status: eventEditForm.status,
           mount_gallop_requirement: Number(eventEditForm.mountGallopRequirement || 120),
@@ -873,6 +1163,7 @@ export default function ZvZConsole({
         eventDate: '',
         status: 'open',
         contentType: 'ZvZ',
+        caller: 'GAKUIA',
         mountGallopRequirement: '120',
         mountRequirementNote: '',
       });
@@ -885,96 +1176,228 @@ export default function ZvZConsole({
     }
   }
 
-  async function createBuild(event: FormEvent<HTMLFormElement>) {
+  async function loadDiscordPreview(eventId: string, messageExtra?: string) {
+    if (!eventId) return;
+    try {
+      let source = events.find((item) => String(item.id) === eventId) ?? null;
+      if (messageExtra !== undefined) {
+        source = await request<Event>(apiBase, `/api/events/${eventId}`, {
+          method: 'PUT',
+          body: JSON.stringify({ discord_message_extra: messageExtra || null }),
+        });
+        setEvents((current) => current.map((item) => (String(item.id) === eventId ? source as Event : item)));
+      }
+      const preview = await request<DiscordPreview>(apiBase, `/api/events/${eventId}/discord/preview`);
+      setDiscordForm({
+        eventId,
+        messageExtra: messageExtra ?? source?.discord_message_extra ?? '',
+        preview: preview.content,
+        messageUrl: preview.message_url ?? source?.discord_message_url ?? '',
+        lastSyncAt: preview.last_sync_at ?? source?.discord_last_sync_at ?? '',
+      });
+    } catch (error) {
+      setNotice({ tone: 'error', text: error instanceof Error ? error.message : 'Falha ao carregar mensagem do Discord.' });
+    }
+  }
+
+  function openDiscordMessage(event: Event) {
+    setDiscordForm({
+      eventId: String(event.id),
+      messageExtra: event.discord_message_extra ?? '',
+      preview: '',
+      messageUrl: event.discord_message_url ?? '',
+      lastSyncAt: event.discord_last_sync_at ?? '',
+    });
+    setView('discord');
+    void loadDiscordPreview(String(event.id), event.discord_message_extra ?? '');
+  }
+
+  async function saveDiscordMessage(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (!discordForm.eventId) return;
     setSaving(true);
     try {
-      await request<Build>(apiBase, '/api/builds/', {
-        method: 'POST',
-        body: JSON.stringify({
-          guild_id: 1,
-          name: buildForm.name,
-          build_type: buildForm.buildType,
-          role: buildForm.role,
-          weapon_name: buildForm.weaponName,
-          weapon_item_id: buildForm.weaponItemId || null,
-          weapon_icon_url: buildForm.weaponIconUrl || null,
-          offhand: buildForm.offhand || null,
-          offhand_item_id: buildForm.offhandItemId || null,
-          offhand_icon_url: buildForm.offhandIconUrl || null,
-          helmet: buildForm.helmet || null,
-          helmet_item_id: buildForm.helmetItemId || null,
-          helmet_icon_url: buildForm.helmetIconUrl || null,
-          chest: buildForm.chest || null,
-          chest_item_id: buildForm.chestItemId || null,
-          chest_icon_url: buildForm.chestIconUrl || null,
-          boots: buildForm.boots || null,
-          boots_item_id: buildForm.bootsItemId || null,
-          boots_icon_url: buildForm.bootsIconUrl || null,
-          cape: buildForm.cape || null,
-          food: buildForm.food || null,
-          potion: buildForm.potion || null,
-          recommended_mount: buildForm.recommendedMount || null,
-          required_level: buildForm.requiredLevel ? Number(buildForm.requiredLevel) : null,
-          description: buildForm.description || null,
-          allowed_mounts: [],
-          event_slots: [],
-          active: true,
-        }),
-      });
-      setBuildForm({
-        name: '',
-        buildType: 'CTA',
-        role: 'DPS',
-        weaponBaseName: '',
-        weaponName: '',
-        weaponItemId: '',
-        weaponIconUrl: '',
-        weaponTier: '',
-        weaponEnchant: '0',
-        offhand: '',
-        offhandBaseName: '',
-        offhandItemId: '',
-        offhandIconUrl: '',
-        offhandTier: '',
-        offhandEnchant: '0',
-        helmet: '',
-        helmetBaseName: '',
-        helmetItemId: '',
-        helmetIconUrl: '',
-        helmetTier: '',
-        helmetEnchant: '0',
-        chest: '',
-        chestBaseName: '',
-        chestItemId: '',
-        chestIconUrl: '',
-        chestTier: '',
-        chestEnchant: '0',
-        boots: '',
-        bootsBaseName: '',
-        bootsItemId: '',
-        bootsIconUrl: '',
-        bootsTier: '',
-        bootsEnchant: '0',
-        cape: '',
-        food: '',
-        potion: '',
-        recommendedMount: '',
-        requiredLevel: '',
-        description: '',
-        mountNames: [],
-      });
-      setNotice({ tone: 'ok', text: 'Build criada. Agora libere jogadores aqui ou use em eventos pela aba Eventos.' });
+      await loadDiscordPreview(discordForm.eventId, discordForm.messageExtra);
+      setNotice({ tone: 'ok', text: 'Mensagem do Discord salva.' });
       await loadData();
-    } catch (error) {
-      setNotice({ tone: 'error', text: error instanceof Error ? error.message : 'Falha ao criar build.' });
     } finally {
       setSaving(false);
     }
   }
 
-  async function toggleApproval(player: Player, build: Build) {
-    const current = approvals.find((approval) => approval.player_id === player.id && approval.build_id === build.id);
+  async function publishDiscordMessage() {
+    if (!discordForm.eventId) return;
+    setSaving(true);
+    try {
+      await request<Event>(apiBase, `/api/events/${discordForm.eventId}`, {
+        method: 'PUT',
+        body: JSON.stringify({ discord_message_extra: discordForm.messageExtra || null }),
+      });
+      const published = await request<Event>(apiBase, `/api/events/${discordForm.eventId}/discord/publish`, { method: 'POST' });
+      const preview = await request<DiscordPreview>(apiBase, `/api/events/${discordForm.eventId}/discord/preview`);
+      setDiscordForm({
+        eventId: discordForm.eventId,
+        messageExtra: published.discord_message_extra ?? '',
+        preview: preview.content,
+        messageUrl: published.discord_message_url ?? preview.message_url ?? '',
+        lastSyncAt: published.discord_last_sync_at ?? preview.last_sync_at ?? '',
+      });
+      setNotice({ tone: 'ok', text: 'Mensagem atualizada no Discord.' });
+      await loadData();
+    } catch (error) {
+      setNotice({ tone: 'error', text: error instanceof Error ? error.message : 'Falha ao publicar no Discord.' });
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  function parseBuildItem(itemId?: string | null) {
+    const [rawId = '', enchant = '0'] = String(itemId ?? '').split('@');
+    const tier = rawId.match(/^T(\d+)/)?.[1] ?? '';
+    return { tier, enchant: enchant || '0' };
+  }
+
+  function cleanBuildName(name?: string | null) {
+    return String(name ?? '').replace(/\s+T\d+(?:\.\d+)?$/i, '');
+  }
+
+  function knownBaseName(name?: string | null, itemId?: string | null, options: AlbionWeapon[] = []) {
+    const direct = options.find((item) => item.name === name);
+    if (direct) return direct.name;
+    const byItemId = options.find((item) => item.variants?.some((variant) => variant.item_id === itemId));
+    if (byItemId) return byItemId.name;
+    const cleaned = cleanBuildName(name);
+    return options.find((item) => item.name === cleaned)?.name ?? cleaned;
+  }
+
+  function buildFormPayload(includeCreateOnly = false) {
+    return {
+      ...(includeCreateOnly ? { guild_id: 1 } : {}),
+      name: buildForm.name,
+      build_type: buildForm.buildType,
+      role: buildForm.role,
+      weapon_name: buildForm.weaponName,
+      weapon_item_id: buildForm.weaponItemId || null,
+      weapon_icon_url: buildForm.weaponIconUrl || null,
+      weapon_skills: buildForm.weaponSkills || null,
+      offhand: buildForm.offhand || null,
+      offhand_item_id: buildForm.offhandItemId || null,
+      offhand_icon_url: buildForm.offhandIconUrl || null,
+      helmet: buildForm.helmet || null,
+      helmet_item_id: buildForm.helmetItemId || null,
+      helmet_icon_url: buildForm.helmetIconUrl || null,
+      helmet_skills: buildForm.helmetSkills || null,
+      chest: buildForm.chest || null,
+      chest_item_id: buildForm.chestItemId || null,
+      chest_icon_url: buildForm.chestIconUrl || null,
+      chest_skills: buildForm.chestSkills || null,
+      boots: buildForm.boots || null,
+      boots_item_id: buildForm.bootsItemId || null,
+      boots_icon_url: buildForm.bootsIconUrl || null,
+      boots_skills: buildForm.bootsSkills || null,
+      cape: buildForm.cape || null,
+      food: buildForm.food || null,
+      potion: buildForm.potion || null,
+      recommended_mount: buildForm.recommendedMount || null,
+      required_level: buildForm.requiredLevel ? Number(buildForm.requiredLevel) : null,
+      description: buildForm.description || null,
+      allowed_mounts: buildForm.mountNames,
+      ...(includeCreateOnly ? { event_slots: [], active: true } : {}),
+    };
+  }
+
+  function startBuildEdit(build: Build) {
+    const weapon = parseBuildItem(build.weapon_item_id);
+    const offhand = parseBuildItem(build.offhand_item_id);
+    const helmet = parseBuildItem(build.helmet_item_id);
+    const chest = parseBuildItem(build.chest_item_id);
+    const boots = parseBuildItem(build.boots_item_id);
+    setEditingBuildId(build.id);
+    setActiveBuildSlot('weapon');
+    setBuildForm({
+      name: build.name,
+      buildType: build.build_type,
+      role: build.role,
+      weaponBaseName: knownBaseName(build.weapon_name, build.weapon_item_id, albionWeapons),
+      weaponName: build.weapon_name,
+      weaponItemId: build.weapon_item_id ?? '',
+      weaponIconUrl: build.weapon_icon_url ?? '',
+      weaponTier: weapon.tier,
+      weaponEnchant: weapon.enchant,
+      weaponSkills: build.weapon_skills ?? '',
+      offhand: build.offhand ?? '',
+      offhandBaseName: knownBaseName(build.offhand, build.offhand_item_id, offhandOptions),
+      offhandItemId: build.offhand_item_id ?? '',
+      offhandIconUrl: build.offhand_icon_url ?? '',
+      offhandTier: offhand.tier,
+      offhandEnchant: offhand.enchant,
+      helmet: build.helmet ?? '',
+      helmetBaseName: knownBaseName(build.helmet, build.helmet_item_id, helmetOptions),
+      helmetItemId: build.helmet_item_id ?? '',
+      helmetIconUrl: build.helmet_icon_url ?? '',
+      helmetTier: helmet.tier,
+      helmetEnchant: helmet.enchant,
+      helmetSkills: build.helmet_skills ?? '',
+      chest: build.chest ?? '',
+      chestBaseName: knownBaseName(build.chest, build.chest_item_id, chestOptions),
+      chestItemId: build.chest_item_id ?? '',
+      chestIconUrl: build.chest_icon_url ?? '',
+      chestTier: chest.tier,
+      chestEnchant: chest.enchant,
+      chestSkills: build.chest_skills ?? '',
+      boots: build.boots ?? '',
+      bootsBaseName: knownBaseName(build.boots, build.boots_item_id, bootsOptions),
+      bootsItemId: build.boots_item_id ?? '',
+      bootsIconUrl: build.boots_icon_url ?? '',
+      bootsTier: boots.tier,
+      bootsEnchant: boots.enchant,
+      bootsSkills: build.boots_skills ?? '',
+      cape: build.cape ?? '',
+      food: build.food ?? '',
+      potion: build.potion ?? '',
+      recommendedMount: build.recommended_mount ?? '',
+      requiredLevel: build.required_level != null ? String(build.required_level) : '',
+      description: build.description ?? '',
+      mountNames: build.allowed_mounts ?? [],
+    });
+    setNotice({ tone: 'info', text: `Editando ${build.name}. Ajuste os slots e salve as alteracoes.` });
+    if (typeof window !== 'undefined') window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+
+  function cancelBuildEdit() {
+    setEditingBuildId(null);
+    setBuildForm(emptyBuildForm());
+    setActiveBuildSlot('weapon');
+  }
+
+  async function saveBuild(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!buildForm.weaponName || !buildForm.weaponItemId) {
+      setActiveBuildSlot('weapon');
+      setNotice({ tone: 'error', text: 'Selecione a arma da build antes de salvar.' });
+      return;
+    }
+    setSaving(true);
+    try {
+      const isEditing = editingBuildId != null;
+      await request<Build>(apiBase, isEditing ? `/api/builds/${editingBuildId}` : '/api/builds/', {
+        method: isEditing ? 'PUT' : 'POST',
+        body: JSON.stringify(buildFormPayload(!isEditing)),
+      });
+      cancelBuildEdit();
+      setNotice({ tone: 'ok', text: isEditing ? 'Build atualizada.' : 'Build criada. Agora libere jogadores aqui ou use em eventos pela aba Eventos.' });
+      await loadData();
+    } catch (error) {
+      setNotice({ tone: 'error', text: error instanceof Error ? error.message : 'Falha ao salvar build.' });
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function toggleApproval(player: Player, build: Build, caller = approvalForm.caller) {
+    const current = approvals.find(
+      (approval) => approval.player_id === player.id && approval.build_id === build.id && (approval.caller ?? '') === caller,
+    );
     setSaving(true);
     try {
       await request<Approval>(apiBase, '/api/builds/approvals', {
@@ -983,16 +1406,25 @@ export default function ZvZConsole({
           guild_id: player.guild_id,
           player_id: player.id,
           build_id: build.id,
+          caller,
           approved: !current?.approved,
         }),
       });
-      setNotice({ tone: 'ok', text: `Build ${build.name} atualizada para ${player.albion_nick}.` });
+      setNotice({ tone: 'ok', text: `Build ${build.name} atualizada para ${player.albion_nick} por ${caller}.` });
       await loadData();
     } catch (error) {
       setNotice({ tone: 'error', text: error instanceof Error ? error.message : 'Falha ao aprovar build.' });
     } finally {
       setSaving(false);
     }
+  }
+
+  async function toggleSelectedApproval() {
+    if (!selectedApprovalPlayer || !selectedApprovalBuild) {
+      setNotice({ tone: 'error', text: 'Selecione uma build e um player para alterar a autorizacao.' });
+      return;
+    }
+    await toggleApproval(selectedApprovalPlayer, selectedApprovalBuild, approvalForm.caller);
   }
 
   async function deactivateBuild(build: Build) {
@@ -1070,7 +1502,7 @@ export default function ZvZConsole({
         method: 'PUT',
         body: JSON.stringify({
           event_slots: eventSlots,
-          allowed_mounts: [],
+          allowed_mounts: build.allowed_mounts ?? [],
         }),
       });
       setNotice({ tone: 'ok', text: message });
@@ -1088,6 +1520,10 @@ export default function ZvZConsole({
     const build = builds.find((item) => String(item.id) === eventManageForm.buildId);
     if (!managedEventId || !build) {
       setNotice({ tone: 'error', text: 'Selecione o evento e a build para vincular.' });
+      return;
+    }
+    if (!selectedManagedEvent || !buildMatchesContentType(build.build_type, selectedManagedEvent.content_type)) {
+      setNotice({ tone: 'error', text: `Essa build e ${build.build_type}, mas o evento e ${selectedManagedEvent?.content_type ?? 'de outro tipo'}.` });
       return;
     }
 
@@ -1146,8 +1582,8 @@ export default function ZvZConsole({
   }
 
   async function requestDungeonBuild(build: Build) {
-    if (!authSession) {
-      setNotice({ tone: 'error', text: 'Entre com Discord para solicitar build em DG.' });
+    if (!checkinForm.nick.trim()) {
+      setNotice({ tone: 'error', text: 'Informe seu nick Albion para solicitar build em DG.' });
       return;
     }
     if (!selectedCheckinEvent) {
@@ -1168,9 +1604,11 @@ export default function ZvZConsole({
         body: JSON.stringify({
           event_id: selectedCheckinEvent.id,
           build_id: build.id,
+          player_nick: checkinForm.nick.trim(),
           weapon_power: parsedWeaponPower,
         }),
       });
+      window.localStorage.setItem('zvz_last_nick', checkinForm.nick.trim());
       setRequestWeaponPower('');
       setNotice({ tone: 'ok', text: `Solicitacao enviada aos lideres para usar ${build.name}.` });
       await loadData();
@@ -1209,6 +1647,10 @@ export default function ZvZConsole({
       setNotice({ tone: 'error', text: 'Selecione uma build liberada para este nick e evento.' });
       return;
     }
+    if (selectedCheckinEvent?.status === 'closed') {
+      setNotice({ tone: 'error', text: 'Este evento esta fechado para check-in.' });
+      return;
+    }
 
     const player = players.find((item) => item.albion_nick.trim().toLowerCase() === checkinForm.nick.trim().toLowerCase());
     if (!player) {
@@ -1230,7 +1672,8 @@ export default function ZvZConsole({
           approved: true,
         }),
       });
-      setCheckinForm({ nick: '', eventId: '', buildId: '', mount: '' });
+      window.localStorage.setItem('zvz_last_nick', player.albion_nick);
+      setCheckinForm({ nick: player.albion_nick, eventId: lockedEventId, buildId: '', mount: '' });
       setAvailableBuilds([]);
       setNotice({ tone: 'ok', text: 'Check-in registrado com build autorizada.' });
       await loadData();
@@ -1256,6 +1699,7 @@ export default function ZvZConsole({
     const fields = slotFields(slot);
     const baseName = gearValue(fields.base);
     const selected = options.find((item) => item.name === baseName);
+    const filteredOptions = filterAlbionItems(options, itemSearch[slot]);
     const tier = gearValue(fields.tier);
     const enchant = gearValue(fields.enchant) || '0';
     const icon = gearValue(fields.iconUrl);
@@ -1264,10 +1708,20 @@ export default function ZvZConsole({
     return (
       <div className="rounded border border-zinc-800 bg-zinc-950 p-3">
         <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-zinc-500">{label}</p>
+        <input
+          className="control mb-2 h-9"
+          onChange={(event) => setItemSearch({ ...itemSearch, [slot]: event.target.value })}
+          placeholder={`Buscar ${label.toLowerCase()} por nome ou ID`}
+          value={itemSearch[slot]}
+        />
         <div className="grid gap-2 md:grid-cols-[1.4fr_0.7fr_0.7fr]">
           <select className="control" onChange={(event) => chooseGearItem(slot, options, event.target.value)} value={baseName}>
             <option value="">Item</option>
-            {options.map((item) => <option key={item.name_en ?? item.name} value={item.name}>{item.name}</option>)}
+            {filteredOptions.map((item) => (
+              <option key={item.name_en ?? item.name} value={item.name}>
+                {item.name}{item.name_en && item.name_en !== item.name ? ` / ${item.name_en}` : ''}
+              </option>
+            ))}
           </select>
           <select className="control" disabled={!selected} onChange={(event) => chooseGearVariant(slot, options, event.target.value, enchant)} value={tier}>
             <option value="">Tier</option>
@@ -1289,19 +1743,294 @@ export default function ZvZConsole({
     );
   }
 
+  function simpleItemSelector(slot: SimpleItemSlot, label: string, options: AlbionWeapon[]) {
+    const filteredOptions = filterAlbionItems(options, itemSearch[slot]);
+    const choices = simpleItemChoices(filteredOptions);
+    const selected = simpleItemChoices(options).find((choice) => choice.value === buildForm[slot]);
+
+    return (
+      <div className="rounded border border-zinc-800 bg-zinc-950 p-3">
+        <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-zinc-500">{label}</p>
+        <input
+          className="control mb-2 h-9"
+          onChange={(event) => setItemSearch({ ...itemSearch, [slot]: event.target.value })}
+          placeholder={`Buscar ${label.toLowerCase()} por nome ou ID`}
+          value={itemSearch[slot]}
+        />
+        <select className="control" onChange={(event) => setBuildForm({ ...buildForm, [slot]: event.target.value })} value={buildForm[slot]}>
+          <option value="">{label}</option>
+          {choices.map((choice) => (
+            <option key={choice.key} value={choice.value}>{choice.label}</option>
+          ))}
+        </select>
+        {selected ? (
+          <div className="mt-3 flex items-center gap-3">
+            {selected.icon ? <img alt="" className="h-12 w-12 rounded bg-zinc-900 object-contain" src={selected.icon} /> : null}
+            <div className="min-w-0">
+              <p className="truncate text-sm text-zinc-300">{selected.value}</p>
+              {selected.itemId ? <p className="truncate text-xs text-zinc-500">{selected.itemId}</p> : null}
+            </div>
+          </div>
+        ) : null}
+      </div>
+    );
+  }
+
+  function simpleItemChoices(options: AlbionWeapon[]) {
+    return options.flatMap((item) => {
+      const variants = item.variants?.length ? item.variants : [{ item_id: item.item_id, icon_url: item.icon_url, tier: String(item.tier ?? '') }];
+      return variants.map((variant) => {
+        const tier = variant.tier ? ` T${variant.tier}` : '';
+        const name = `${item.name}${tier}`;
+        return {
+          key: `${variant.item_id ?? item.name}-${variant.tier ?? ''}`,
+          value: name,
+          label: `${name}${item.name_en && item.name_en !== item.name ? ` / ${item.name_en}${tier}` : ''}`,
+          icon: variant.icon_url ?? item.icon_url,
+          itemId: variant.item_id ?? item.item_id,
+        };
+      });
+    });
+  }
+
+  function weaponSelector() {
+    return (
+      <div className="rounded border border-zinc-800 bg-zinc-950 p-3">
+        <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-zinc-500">Arma</p>
+        <input
+          className="control mb-2 h-9"
+          onChange={(event) => setItemSearch({ ...itemSearch, weapon: event.target.value })}
+          placeholder="Buscar arma por nome ou ID. Ex: sagrado, hallowfall, T4_MAIN"
+          value={itemSearch.weapon}
+        />
+        <div className="grid gap-2 md:grid-cols-[1.4fr_0.7fr_0.7fr]">
+          <select className="control" onChange={(event) => chooseAlbionWeapon(event.target.value)} required value={buildForm.weaponBaseName}>
+            <option value="">Arma do Albion</option>
+            {filterAlbionItems(albionWeapons, itemSearch.weapon).map((weapon) => (
+              <option key={weapon.name_en ?? weapon.name} value={weapon.name}>
+                {weapon.name}{weapon.name_en && weapon.name_en !== weapon.name ? ` / ${weapon.name_en}` : ''}
+              </option>
+            ))}
+          </select>
+          <select className="control" disabled={!selectedAlbionWeapon} onChange={(event) => chooseWeaponVariant(event.target.value)} required value={buildForm.weaponTier}>
+            <option value="">Tier</option>
+            {(selectedAlbionWeapon?.variants ?? []).map((variant) => (
+              <option key={`${variant.item_id}-${variant.tier}`} value={variant.tier ?? ''}>T{variant.tier}</option>
+            ))}
+          </select>
+          <select className="control" disabled={!selectedAlbionWeapon} onChange={(event) => chooseWeaponVariant(buildForm.weaponTier, event.target.value)} value={buildForm.weaponEnchant}>
+            {enchantments.map((enchant) => (
+              <option key={enchant} value={enchant}>{enchant === '0' ? 'Sem encanto' : `.${enchant}`}</option>
+            ))}
+          </select>
+        </div>
+        {buildForm.weaponIconUrl ? (
+          <div className="mt-3 flex items-center gap-3">
+            <img alt="" className="h-12 w-12 rounded bg-zinc-900 object-contain" src={buildForm.weaponIconUrl} />
+            <span className="text-sm text-zinc-300">{buildForm.weaponName}</span>
+          </div>
+        ) : null}
+      </div>
+    );
+  }
+
+  function activeSlotSelector() {
+    if (activeBuildSlot === 'weapon') return weaponSelector();
+    if (activeBuildSlot === 'offhand') return gearSelector('offhand', 'Offhand', offhandOptions);
+    if (activeBuildSlot === 'helmet') return gearSelector('helmet', 'Capacete', helmetOptions);
+    if (activeBuildSlot === 'chest') return gearSelector('chest', 'Peitoral', chestOptions);
+    if (activeBuildSlot === 'boots') return gearSelector('boots', 'Bota', bootsOptions);
+    if (activeBuildSlot === 'cape') return simpleItemSelector('cape', 'Capa', albionCapes);
+    if (activeBuildSlot === 'food') return simpleItemSelector('food', 'Comida', albionFoods);
+    return simpleItemSelector('potion', 'Pocao', albionPotions);
+  }
+
+  function selectedSlotInfo(slot: BuildEditorSlot) {
+    if (slot === 'weapon') return { name: buildForm.weaponName, icon: buildForm.weaponIconUrl };
+    if (slot === 'cape') return { name: buildForm.cape, icon: simpleItemChoices(albionCapes).find((choice) => choice.value === buildForm.cape)?.icon ?? '' };
+    if (slot === 'food') return { name: buildForm.food, icon: simpleItemChoices(albionFoods).find((choice) => choice.value === buildForm.food)?.icon ?? '' };
+    if (slot === 'potion') return { name: buildForm.potion, icon: simpleItemChoices(albionPotions).find((choice) => choice.value === buildForm.potion)?.icon ?? '' };
+    const fields = slotFields(slot);
+    return { name: gearValue(fields.name), icon: gearValue(fields.iconUrl) };
+  }
+
+  function buildSlotButton(slot: BuildEditorSlot, label: string) {
+    const selected = selectedSlotInfo(slot);
+    const active = activeBuildSlot === slot;
+    return (
+      <button
+        className={`build-slot ${active ? 'build-slot-active' : ''} ${selected.name ? 'build-slot-filled' : ''}`}
+        onClick={() => setActiveBuildSlot(slot)}
+        type="button"
+      >
+        <span className="build-slot-media">
+          {selected.icon ? <img alt="" src={selected.icon} /> : <span className="build-slot-placeholder">{label.slice(0, 2).toUpperCase()}</span>}
+        </span>
+        <span className="build-slot-label">{label}</span>
+        {selected.name ? <span className="build-slot-name">{selected.name}</span> : null}
+      </button>
+    );
+  }
+
+  function splitSkillText(value?: string | null) {
+    return (value ?? '')
+      .split(/[,;\n]/)
+      .map((item) => item.trim())
+      .filter(Boolean);
+  }
+
+  function buildSkillInput(field: 'weaponSkills' | 'helmetSkills' | 'chestSkills' | 'bootsSkills', label: string, placeholder: string) {
+    const value = buildForm[field];
+    const skills = splitSkillText(value);
+    return (
+      <label className="skill-editor-row">
+        <span className="skill-editor-title">{label}</span>
+        <input
+          className="control h-9"
+          onChange={(event) => setBuildForm({ ...buildForm, [field]: event.target.value })}
+          placeholder={placeholder}
+          value={value}
+        />
+        {skills.length ? (
+          <span className="skill-chip-row">
+            {skills.map((skill) => <span className="skill-chip" key={`${field}-${skill}`}>{skill}</span>)}
+          </span>
+        ) : null}
+      </label>
+    );
+  }
+
+  function buildSkillSummary(build: Build) {
+    const rows = [
+      { label: 'Mao principal', value: build.weapon_skills },
+      { label: 'Cabeca', value: build.helmet_skills },
+      { label: 'Peitoral', value: build.chest_skills },
+      { label: 'Sapatos', value: build.boots_skills },
+    ].filter((row) => splitSkillText(row.value).length);
+
+    if (!rows.length) return null;
+
+    return (
+      <div className="player-skill-panel">
+        <p className="player-skill-heading">Habilidades</p>
+        {rows.map((row) => (
+          <div className="player-skill-row" key={row.label}>
+            <span className="player-skill-label">{row.label}</span>
+            <span className="skill-chip-row">
+              {splitSkillText(row.value).map((skill) => <span className="skill-chip" key={`${row.label}-${skill}`}>{skill}</span>)}
+            </span>
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  function buildEquipmentMiniGrid(build: Build) {
+    const items = [
+      { label: 'Elmo', name: build.helmet, icon: build.helmet_icon_url },
+      { label: 'Capa', name: build.cape, icon: '' },
+      { label: 'Arma', name: build.weapon_name, icon: build.weapon_icon_url },
+      { label: 'Peito', name: build.chest, icon: build.chest_icon_url },
+      { label: 'Off', name: build.offhand, icon: build.offhand_icon_url },
+      { label: 'Pocao', name: build.potion, icon: '' },
+      { label: 'Bota', name: build.boots, icon: build.boots_icon_url },
+      { label: 'Food', name: build.food, icon: '' },
+    ];
+
+    return (
+      <div className="player-loadout-mini">
+        {items.map((item) => (
+          <div className={`player-loadout-slot ${item.name ? 'player-loadout-slot-filled' : ''}`} key={item.label} title={item.name || item.label}>
+            {item.icon ? <img alt="" src={item.icon} /> : <span>{item.label.slice(0, 2).toUpperCase()}</span>}
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  function buildShowcaseCard({
+    build,
+    selected = false,
+    muted = false,
+    status,
+    action,
+    onSelect,
+  }: {
+    build: Build;
+    selected?: boolean;
+    muted?: boolean;
+    status?: ReactNode;
+    action?: ReactNode;
+    onSelect?: () => void;
+  }) {
+    const mount = mountsByName.get(build.recommended_mount || '');
+    const equipment = [build.offhand, build.helmet, build.chest, build.boots, build.cape].filter(Boolean).join(' / ');
+    const consumables = [build.food, build.potion].filter(Boolean).join(' / ');
+    const content = (
+      <>
+        <div className="build-showcase-head">
+          <div className="build-showcase-icon">
+            {build.weapon_icon_url ? <img alt="" src={build.weapon_icon_url} /> : <span>{build.role.slice(0, 2).toUpperCase()}</span>}
+          </div>
+          <div className="min-w-0 flex-1">
+            <div className="flex flex-wrap items-start gap-2">
+              <p className="min-w-0 flex-1 truncate text-base font-bold text-white">{build.name}</p>
+              <span className="build-type-badge">{build.build_type}</span>
+            </div>
+            <p className="mt-1 text-sm text-zinc-300">{build.role} / {build.weapon_name}</p>
+            {status ? <div className="mt-1">{status}</div> : null}
+          </div>
+        </div>
+        <div className="mt-4 grid gap-3 lg:grid-cols-[0.85fr_1fr]">
+          {buildSkillSummary(build) ?? (
+            <div className="player-skill-panel">
+              <p className="player-skill-heading">Habilidades</p>
+              <p className="text-xs text-zinc-500">Skills ainda nao configuradas para esta build.</p>
+            </div>
+          )}
+          {buildEquipmentMiniGrid(build)}
+        </div>
+        <div className="mt-3 grid gap-1 text-xs text-zinc-400">
+          <span>Equip: {equipment || 'Nao informado'}</span>
+          <span>Consumiveis: {consumables || 'Nao informado'}</span>
+          {build.recommended_mount ? (
+            <span>Montaria: {mount ? `${mountLabel(mount)} (${mountDetail(mount)})` : build.recommended_mount}</span>
+          ) : null}
+        </div>
+        {action ? <div className="mt-4 flex flex-wrap gap-2">{action}</div> : null}
+      </>
+    );
+
+    if (onSelect) {
+      return (
+        <button
+          className={`build-showcase ${selected ? 'build-showcase-selected' : ''} ${muted ? 'opacity-70' : ''}`}
+          onClick={onSelect}
+          type="button"
+        >
+          {content}
+        </button>
+      );
+    }
+
+    return <div className={`build-showcase ${selected ? 'build-showcase-selected' : ''} ${muted ? 'opacity-70' : ''}`}>{content}</div>;
+  }
+
   const navItems = (canManage
-    ? ['staff', 'eventBuilds', 'eventManage', 'builds', 'leader', 'checkin', 'player', 'settings']
-    : canLead
-      ? ['leader', 'checkin', 'player']
+    ? ['staff', 'eventBuilds', 'eventManage', 'discord', 'builds', 'leader', 'checkin', 'players', 'player', 'settings']
+    : canEventManage
+      ? ['staff', 'eventBuilds', 'eventManage', 'discord', 'leader', 'checkin', 'player']
       : ['checkin', 'player']) as View[];
   const viewLabels: Record<View, string> = {
     staff: 'Eventos',
     eventBuilds: 'Composicao',
     eventManage: 'Gerenciar',
+    discord: 'Discord',
     builds: 'Builds',
     leader: 'Lider',
     checkin: 'Check-in',
     player: 'Jogador',
+    players: 'Players',
     settings: 'Configuracoes',
   };
 
@@ -1339,7 +2068,7 @@ export default function ZvZConsole({
           </div>
           <div className="min-w-0">
             <p className="truncate text-sm font-semibold text-zinc-100">{authSession?.discordName ?? 'Visitante'}</p>
-            <p className="truncate text-xs text-zinc-500">{canManage ? 'Shotcaller / Staff' : authSession ? 'Membro' : 'Discord desconectado'}</p>
+            <p className="truncate text-xs text-zinc-500">{canManage ? 'Shotcaller / Staff' : authSession ? 'Membro' : 'Login opcional'}</p>
           </div>
         </div>
       </aside>
@@ -1369,9 +2098,9 @@ export default function ZvZConsole({
                   <button className="button-secondary h-10" onClick={logout} type="button">Sair</button>
                 </>
               ) : (
-                <button className="button-primary h-10" onClick={() => void loginWithDiscord()} type="button">
-                  Entrar com Discord
-                </button>
+                  <button className="button-secondary h-10" onClick={() => void loginWithDiscord()} type="button">
+                    Entrar como staff
+                  </button>
               )}
             </div>
           </div>
@@ -1405,7 +2134,7 @@ export default function ZvZConsole({
           </section>
         ) : null}
 
-        {view === 'staff' && canManage ? (
+        {view === 'staff' && canEventManage ? (
           <section className="grid gap-5 xl:grid-cols-[1.2fr_0.8fr]">
             <div className="space-y-5">
               <div className="grid gap-3 sm:grid-cols-4">
@@ -1462,7 +2191,13 @@ export default function ZvZConsole({
                     <tbody>
                       {players.map((player) => (
                         <tr key={player.id} className="border-b border-zinc-800/70">
-                          <td className="py-3 font-semibold text-zinc-100">{player.albion_nick}</td>
+                          <td className="py-3">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <span className="font-semibold text-zinc-100">{player.albion_nick}</span>
+                              {player.role === 'caller' ? <span className="rounded border border-red-400/40 px-2 py-0.5 text-[10px] font-bold uppercase text-red-200">Caller</span> : null}
+                              {player.is_staff ? <span className="rounded border border-emerald-400/40 px-2 py-0.5 text-[10px] font-bold uppercase text-emerald-200">Staff</span> : null}
+                            </div>
+                          </td>
                           <td>{player.rating.toFixed(1)}</td>
                           <td>{player.participations}</td>
                           <td>{approvals.filter((approval) => approval.player_id === player.id && approval.approved).length}</td>
@@ -1512,6 +2247,11 @@ export default function ZvZConsole({
                   <select className="control" onChange={(event) => setEventForm({ ...eventForm, contentType: event.target.value })} value={eventForm.contentType}>
                     {contentTypes.map((item) => <option key={item} value={item}>{item}</option>)}
                   </select>
+                  {needsBuildCaller(eventForm.contentType) ? (
+                    <select className="control" onChange={(event) => setEventForm({ ...eventForm, caller: event.target.value })} required value={eventForm.caller}>
+                      {buildCallers.map((caller) => <option key={caller} value={caller}>{caller}</option>)}
+                    </select>
+                  ) : null}
                   <select className="control" onChange={(event) => setEventForm({ ...eventForm, status: event.target.value })} value={eventForm.status}>
                     <option value="open">Aberto</option>
                     <option value="draft">Rascunho</option>
@@ -1535,8 +2275,32 @@ export default function ZvZConsole({
                 </form>
               </Panel>
               <Panel title="Eventos criados">
+                <div className="mb-3 grid gap-2 sm:grid-cols-[1fr_1fr]">
+                  <input
+                    className="control h-9"
+                    onChange={(event) => setEventSearch(event.target.value)}
+                    placeholder="Buscar evento por nome, caller ou tipo"
+                    value={eventSearch}
+                  />
+                  <select
+                    className="control h-9"
+                    onChange={(event) => {
+                      if (!event.target.value) return;
+                      setEventManageForm({ eventId: event.target.value, buildId: '', slots: '1' });
+                      setView('eventManage');
+                    }}
+                    value=""
+                  >
+                    <option value="">Selecionar evento especifico</option>
+                    {filteredEvents.map((event) => (
+                      <option key={event.id} value={event.id}>
+                        {event.title} / {event.caller ? `${event.caller} / ` : ''}{formatDate(event.event_date)}
+                      </option>
+                    ))}
+                  </select>
+                </div>
                 <div className="grid gap-3">
-                  {events.slice(0, 8).map((event) => {
+                  {filteredEvents.slice(0, 12).map((event) => {
                     const eventBuildCount = builds.filter((build) => build.event_slots.some((slot) => slot.event_id === event.id)).length;
                     const editing = eventEditForm.eventId === String(event.id);
                     return (
@@ -1555,6 +2319,11 @@ export default function ZvZConsole({
                                 <option value="closed">Fechado</option>
                               </select>
                             </div>
+                            {needsBuildCaller(eventEditForm.contentType) ? (
+                              <select className="control h-9" onChange={(item) => setEventEditForm({ ...eventEditForm, caller: item.target.value })} required value={eventEditForm.caller}>
+                                {buildCallers.map((caller) => <option key={caller} value={caller}>{caller}</option>)}
+                              </select>
+                            ) : null}
                             <input className="control h-9" min={0} onChange={(item) => setEventEditForm({ ...eventEditForm, mountGallopRequirement: item.target.value })} type="number" value={eventEditForm.mountGallopRequirement} />
                             <textarea className="control min-h-16 py-2" onChange={(item) => setEventEditForm({ ...eventEditForm, mountRequirementNote: item.target.value })} value={eventEditForm.mountRequirementNote} />
                             <div className="flex flex-wrap gap-2">
@@ -1568,7 +2337,7 @@ export default function ZvZConsole({
                               <div className="min-w-0">
                                 <p className="truncate text-sm font-semibold text-zinc-100">{event.title}</p>
                                 <p className="mt-1 text-xs text-zinc-500">
-                                  {event.content_type} / {formatDate(event.event_date)} / {event.status} / {eventBuildCount} build(s)
+                                  {event.content_type} / {event.caller ? `${event.caller} / ` : ''}{formatDate(event.event_date)} / {event.status} / {eventBuildCount} build(s)
                                 </p>
                               </div>
                               <span className={event.status === 'closed' ? 'text-xs font-semibold text-red-300' : 'text-xs font-semibold text-emerald-300'}>
@@ -1589,6 +2358,12 @@ export default function ZvZConsole({
                               <button className="button-secondary h-9" disabled={saving} onClick={() => startEventEdit(event)} type="button">
                                 Editar
                               </button>
+                              <button className="button-secondary h-9" disabled={saving} onClick={() => openDiscordMessage(event)} type="button">
+                                Discord
+                              </button>
+                              <a className="button-secondary grid h-9 place-items-center" href={`/evento/${event.id}`} target="_blank">
+                                Link check-in
+                              </a>
                               <button className="button-secondary h-9" disabled={saving} onClick={() => void duplicateEvent(event)} type="button">
                                 Duplicar base
                               </button>
@@ -1606,7 +2381,7 @@ export default function ZvZConsole({
                       </div>
                     );
                   })}
-                  {!events.length ? <p className="text-sm text-zinc-500">Nenhum evento criado ainda.</p> : null}
+                  {!filteredEvents.length ? <p className="text-sm text-zinc-500">Nenhum evento encontrado.</p> : null}
                 </div>
               </Panel>
               <Panel title="Ranking">
@@ -1624,7 +2399,7 @@ export default function ZvZConsole({
           </section>
         ) : null}
 
-        {view === 'eventBuilds' && canManage ? (
+        {view === 'eventBuilds' && canEventManage ? (
           <section className="grid gap-5 xl:grid-cols-[0.85fr_1.15fr]">
             <Panel title="Selecionar evento para compor">
               <div className="grid gap-3">
@@ -1634,7 +2409,7 @@ export default function ZvZConsole({
                   value={eventManageForm.eventId}
                 >
                   <option value="">Selecione um evento</option>
-                  {events.filter((event) => event.status !== 'closed').map((event) => (
+                  {events.filter((event) => event.status !== 'closed' || String(event.id) === lockedEventId).map((event) => (
                     <option key={event.id} value={event.id}>
                       {event.title} - {formatDate(event.event_date)} - {event.status}
                     </option>
@@ -1645,7 +2420,7 @@ export default function ZvZConsole({
                   <div className="rounded border border-zinc-800 bg-zinc-950 p-4 text-sm text-zinc-300">
                     <p className="text-base font-bold text-zinc-100">{selectedManagedEvent.title}</p>
                     <p className="mt-1 text-xs text-zinc-500">
-                      {selectedManagedEvent.content_type} / {formatDate(selectedManagedEvent.event_date)} / {selectedManagedEvent.status}
+                      {selectedManagedEvent.content_type} / {selectedManagedEvent.caller ? `${selectedManagedEvent.caller} / ` : ''}{formatDate(selectedManagedEvent.event_date)} / {selectedManagedEvent.status}
                     </p>
                     <p className="mt-2 text-xs font-semibold text-emerald-300">
                       Montaria: galope {selectedManagedEvent.mount_gallop_requirement ?? 120}%+
@@ -1678,13 +2453,11 @@ export default function ZvZConsole({
                       value={eventManageForm.buildId}
                     >
                       <option value="">Selecionar build cadastrada</option>
-                      {builds
-                        .filter((build) => build.active && !build.event_slots.some((slot) => slot.event_id === selectedManagedEvent.id))
-                        .map((build) => (
-                          <option key={build.id} value={build.id}>
-                            {build.name} / {build.role}
-                          </option>
-                        ))}
+                      {managedEventLinkableBuilds.map((build) => (
+                        <option key={build.id} value={build.id}>
+                          {build.name} / {build.build_type} / {build.role}
+                        </option>
+                      ))}
                     </select>
                     <input
                       className="control"
@@ -1693,8 +2466,13 @@ export default function ZvZConsole({
                       type="number"
                       value={eventManageForm.slots}
                     />
-                    <button className="button-primary" disabled={saving || selectedManagedEvent.status === 'closed'} type="submit">Vincular</button>
+                    <button className="button-primary" disabled={saving || selectedManagedEvent.status === 'closed' || !managedEventLinkableBuilds.length} type="submit">Vincular</button>
                   </form>
+                ) : null}
+                {selectedManagedEvent && !managedEventLinkableBuilds.length ? (
+                  <p className="text-xs text-zinc-500">
+                    Nenhuma build ativa do tipo {selectedManagedEvent.content_type} disponivel para vincular neste evento.
+                  </p>
                 ) : null}
               </div>
             </Panel>
@@ -1743,7 +2521,91 @@ export default function ZvZConsole({
           </section>
         ) : null}
 
-        {view === 'eventManage' && canManage ? (
+        {view === 'discord' && canEventManage ? (
+          <section className="grid gap-5 xl:grid-cols-[0.8fr_1.2fr]">
+            <Panel title="Mensagem do Discord">
+              <form className="grid gap-3" onSubmit={saveDiscordMessage}>
+                <select
+                  className="control"
+                  onChange={(event) => {
+                    const eventId = event.target.value;
+                    const selected = events.find((item) => String(item.id) === eventId);
+                    setDiscordForm({
+                      eventId,
+                      messageExtra: selected?.discord_message_extra ?? '',
+                      preview: '',
+                      messageUrl: selected?.discord_message_url ?? '',
+                      lastSyncAt: selected?.discord_last_sync_at ?? '',
+                    });
+                    if (eventId) void loadDiscordPreview(eventId, selected?.discord_message_extra ?? '');
+                  }}
+                  value={discordForm.eventId}
+                >
+                  <option value="">Selecione um evento</option>
+                  {events.map((event) => (
+                    <option key={event.id} value={event.id}>
+                      {event.title} - {formatDate(event.event_date)}
+                    </option>
+                  ))}
+                </select>
+
+                {selectedDiscordEvent ? (
+                  <div className="rounded border border-zinc-800 bg-zinc-950 p-3 text-sm text-zinc-300">
+                    <p className="font-semibold text-zinc-100">{selectedDiscordEvent.title}</p>
+                    <p className="mt-1 text-xs text-zinc-500">
+                      {selectedDiscordEvent.content_type} / {selectedDiscordEvent.caller ? `${selectedDiscordEvent.caller} / ` : ''}{selectedDiscordEvent.status}
+                    </p>
+                    {discordForm.messageUrl ? (
+                      <a className="mt-2 inline-block text-xs font-semibold text-red-300" href={discordForm.messageUrl} target="_blank">
+                        Abrir mensagem publicada
+                      </a>
+                    ) : null}
+                    {discordForm.lastSyncAt ? (
+                      <p className="mt-2 text-xs text-zinc-500">Ultima sync: {formatDate(discordForm.lastSyncAt)}</p>
+                    ) : null}
+                  </div>
+                ) : null}
+
+                <textarea
+                  className="control min-h-36 py-3"
+                  disabled={!discordForm.eventId}
+                  onChange={(event) => setDiscordForm({ ...discordForm, messageExtra: event.target.value })}
+                  placeholder="Texto extra que entra na mensagem do Discord"
+                  value={discordForm.messageExtra}
+                />
+
+                <div className="flex flex-wrap gap-2">
+                  <button className="button-secondary" disabled={saving || !discordForm.eventId} type="submit">
+                    Salvar texto
+                  </button>
+                  <button className="button-primary" disabled={saving || !discordForm.eventId} onClick={() => void publishDiscordMessage()} type="button">
+                    Atualizar Discord
+                  </button>
+                  <button
+                    className="button-secondary"
+                    disabled={saving || !discordForm.eventId}
+                    onClick={() => void loadDiscordPreview(discordForm.eventId, discordForm.messageExtra)}
+                    type="button"
+                  >
+                    Atualizar previa
+                  </button>
+                </div>
+              </form>
+            </Panel>
+
+            <Panel title="Previa">
+              {discordForm.preview ? (
+                <pre className="max-h-[34rem] overflow-auto whitespace-pre-wrap rounded border border-zinc-800 bg-zinc-950 p-4 text-sm leading-6 text-zinc-200">
+                  {discordForm.preview}
+                </pre>
+              ) : (
+                <p className="text-sm text-zinc-500">Selecione um evento para visualizar a mensagem.</p>
+              )}
+            </Panel>
+          </section>
+        ) : null}
+
+        {view === 'eventManage' && canEventManage ? (
           <section className="grid gap-5">
             <Panel title="Selecionar evento para gerenciar">
               <div className="grid gap-3 lg:grid-cols-[1fr_auto_auto_auto_auto] lg:items-center">
@@ -1774,7 +2636,7 @@ export default function ZvZConsole({
                       <div className="rounded border border-red-950/60 bg-zinc-950/80 p-4">
                         <p className="text-lg font-bold text-white">{selectedManagedEvent.title}</p>
                         <p className="mt-1 text-sm text-zinc-400">
-                          {selectedManagedEvent.content_type} / {formatDate(selectedManagedEvent.event_date)} / {selectedManagedEvent.status}
+                          {selectedManagedEvent.content_type} / {selectedManagedEvent.caller ? `${selectedManagedEvent.caller} / ` : ''}{formatDate(selectedManagedEvent.event_date)} / {selectedManagedEvent.status}
                         </p>
                         <p className="mt-2 text-xs font-semibold text-emerald-300">
                           Montaria: galope {selectedManagedEvent.mount_gallop_requirement ?? 120}%+
@@ -1839,7 +2701,14 @@ export default function ZvZConsole({
                     </div>
                   </Panel>
 
-                  <Panel title="Grupo que fez check-in">
+                  <Panel
+                    title="Grupo que fez check-in"
+                    titleAction={
+                      <button className="button-secondary h-8 px-3 text-xs" disabled={loading} onClick={() => void loadData()} type="button">
+                        Atualizar lista
+                      </button>
+                    }
+                  >
                     <div className="grid gap-4">
                     {managedEventCheckinsByBuild.map(({ buildName, rows }) => (
                       <div className="rounded border border-zinc-800 bg-zinc-950/70" key={buildName}>
@@ -1901,55 +2770,66 @@ export default function ZvZConsole({
 
         {view === 'builds' && canManage ? (
           <section className="grid gap-5 xl:grid-cols-[0.85fr_1.15fr]">
-            <Panel title="Criar build">
-              <form className="grid gap-3" onSubmit={createBuild}>
+            <Panel title={editingBuild ? 'Editar build' : 'Criar build'}>
+              <form className="grid gap-3" onSubmit={saveBuild}>
+                {editingBuild ? (
+                  <div className="rounded border border-red-900/50 bg-red-950/20 p-3">
+                    <p className="text-sm font-semibold text-red-100">Editando: {editingBuild.name}</p>
+                    <p className="text-xs text-zinc-400">
+                      Os eventos e vagas ja vinculados continuam preservados. Altere equipamentos, skills e instrucoes aqui.
+                    </p>
+                  </div>
+                ) : null}
                 <input className="control" onChange={(event) => setBuildForm({ ...buildForm, name: event.target.value })} placeholder="Build CTA - Shadowcaller" required value={buildForm.name} />
-                <select className="control" onChange={(event) => setBuildForm({ ...buildForm, buildType: event.target.value })} value={buildForm.buildType}>
+                <select
+                  className="control"
+                  disabled={Boolean(editingBuild?.event_slots.length)}
+                  onChange={(event) => setBuildForm({ ...buildForm, buildType: event.target.value })}
+                  value={buildForm.buildType}
+                >
                   {contentTypes.map((item) => <option key={item} value={item}>{item}</option>)}
                 </select>
+                {editingBuild?.event_slots.length ? (
+                  <p className="text-xs text-zinc-500">Tipo bloqueado porque esta build ja esta vinculada a evento.</p>
+                ) : null}
                 <select className="control" onChange={(event) => setBuildForm({ ...buildForm, role: event.target.value })} value={buildForm.role}>
                   {roles.map((item) => <option key={item} value={item}>{item}</option>)}
                 </select>
-                <div className="grid gap-3 md:grid-cols-[1.4fr_0.7fr_0.7fr]">
-                  <select className="control" onChange={(event) => chooseAlbionWeapon(event.target.value)} required value={buildForm.weaponBaseName}>
-                    <option value="">Arma do Albion</option>
-                    {albionWeapons.map((weapon) => (
-                      <option key={weapon.name_en ?? weapon.name} value={weapon.name}>
-                        {weapon.name}{weapon.name_en && weapon.name_en !== weapon.name ? ` / ${weapon.name_en}` : ''}
-                      </option>
-                    ))}
-                  </select>
-                  <select className="control" disabled={!selectedAlbionWeapon} onChange={(event) => chooseWeaponVariant(event.target.value)} required value={buildForm.weaponTier}>
-                    <option value="">Tier</option>
-                    {(selectedAlbionWeapon?.variants ?? []).map((variant) => (
-                      <option key={`${variant.item_id}-${variant.tier}`} value={variant.tier ?? ''}>T{variant.tier}</option>
-                    ))}
-                  </select>
-                  <select className="control" disabled={!selectedAlbionWeapon} onChange={(event) => chooseWeaponVariant(buildForm.weaponTier, event.target.value)} value={buildForm.weaponEnchant}>
-                    {enchantments.map((enchant) => (
-                      <option key={enchant} value={enchant}>{enchant === '0' ? 'Sem encanto' : `.${enchant}`}</option>
-                    ))}
-                  </select>
-                </div>
-                {buildForm.weaponIconUrl ? (
-                  <div className="flex items-center gap-3 rounded border border-zinc-800 bg-zinc-950 p-3">
-                    <img alt="" className="h-16 w-16 rounded bg-zinc-900 object-contain" src={buildForm.weaponIconUrl} />
-                    <div>
-                      <p className="text-sm font-semibold">{buildForm.weaponName}</p>
-                      <p className="text-xs text-zinc-500">Tier {buildForm.weaponTier}, encantamento {buildForm.weaponEnchant}. Imagem renderizada pelo Albion.</p>
+                <div className="build-loadout">
+                  <div className="build-loadout-stage">
+                    <div className="skill-editor">
+                      <p className="skill-editor-heading">Habilidades</p>
+                      {buildSkillInput('weaponSkills', 'Mao principal', 'Ex: Q3, W2, E')}
+                      {buildSkillInput('helmetSkills', 'Cabeca', 'Ex: purificar, resistencia')}
+                      {buildSkillInput('chestSkills', 'Peitoral', 'Ex: clerigo, enraizar')}
+                      {buildSkillInput('bootsSkills', 'Sapatos', 'Ex: corrida revigorante')}
+                    </div>
+                    <div className="build-loadout-grid">
+                      <div />
+                      {buildSlotButton('helmet', 'Elmo')}
+                      {buildSlotButton('cape', 'Capa')}
+                      {buildSlotButton('weapon', 'Arma')}
+                      {buildSlotButton('chest', 'Peito')}
+                      {buildSlotButton('offhand', 'Off-hand')}
+                      {buildSlotButton('potion', 'Pocao')}
+                      {buildSlotButton('boots', 'Bota')}
+                      {buildSlotButton('food', 'Comida')}
                     </div>
                   </div>
-                ) : null}
-                <div className="grid gap-3">
-                  {gearSelector('offhand', 'Offhand', offhandOptions)}
-                  {gearSelector('helmet', 'Capacete', helmetOptions)}
-                  {gearSelector('chest', 'Peitoral', chestOptions)}
-                  {gearSelector('boots', 'Bota', bootsOptions)}
+                  <div className="build-loadout-editor">
+                    <div className="mb-3 flex items-center justify-between gap-3">
+                      <div>
+                        <p className="text-xs font-semibold uppercase tracking-wide text-red-300">Slot selecionado</p>
+                        <p className="text-sm font-semibold text-zinc-100">
+                          {activeBuildSlot === 'weapon' ? 'Arma' : activeBuildSlot === 'offhand' ? 'Off-hand' : activeBuildSlot === 'helmet' ? 'Elmo' : activeBuildSlot === 'chest' ? 'Peito' : activeBuildSlot === 'boots' ? 'Bota' : activeBuildSlot === 'cape' ? 'Capa' : activeBuildSlot === 'food' ? 'Comida' : 'Pocao'}
+                        </p>
+                      </div>
+                      <span className="rounded border border-zinc-700 px-2 py-1 text-xs font-semibold text-zinc-400">Clique no slot para trocar</span>
+                    </div>
+                    {activeSlotSelector()}
+                  </div>
                 </div>
                 <div className="grid gap-3 md:grid-cols-2">
-                  <input className="control" onChange={(event) => setBuildForm({ ...buildForm, cape: event.target.value })} placeholder="Capa" value={buildForm.cape} />
-                  <input className="control" onChange={(event) => setBuildForm({ ...buildForm, food: event.target.value })} placeholder="Comida" value={buildForm.food} />
-                  <input className="control" onChange={(event) => setBuildForm({ ...buildForm, potion: event.target.value })} placeholder="Pocao" value={buildForm.potion} />
                   <input className="control" onChange={(event) => setBuildForm({ ...buildForm, requiredLevel: event.target.value })} placeholder="Nivel requerido" type="number" value={buildForm.requiredLevel} />
                 </div>
                 <select className="control" onChange={(event) => setBuildForm({ ...buildForm, recommendedMount: event.target.value })} value={buildForm.recommendedMount}>
@@ -1966,75 +2846,150 @@ export default function ZvZConsole({
                   </div>
                 ) : null}
                 <textarea className="control min-h-24 py-3" onChange={(event) => setBuildForm({ ...buildForm, description: event.target.value })} placeholder="Observacoes e instrucoes para a PT" value={buildForm.description} />
-                <button className="button-primary" disabled={saving} type="submit">Salvar build</button>
+                <div className="flex flex-wrap gap-2">
+                  <button className="button-primary" disabled={saving} type="submit">{editingBuild ? 'Salvar alteracoes' : 'Salvar build'}</button>
+                  {editingBuild ? (
+                    <button className="button-secondary" disabled={saving} onClick={cancelBuildEdit} type="button">Cancelar edicao</button>
+                  ) : null}
+                </div>
               </form>
             </Panel>
 
             <div className="space-y-5">
               <Panel title="Builds configuradas">
                 <div className="grid gap-3 md:grid-cols-2">
-                  {builds.map((build) => (
-                    <div className="item-card" key={build.id}>
-                      <div className="flex gap-3">
-                        {build.weapon_icon_url ? <img alt="" className="h-14 w-14 rounded bg-zinc-900 object-contain" src={build.weapon_icon_url} /> : null}
-                        <div className="min-w-0">
-                          <p className="truncate font-semibold">{build.name}</p>
-                          <p className="text-sm text-zinc-400">{build.build_type} / {build.role} / {build.weapon_name}</p>
-                          <p className="mt-1 text-xs text-zinc-500">{build.active ? 'ativa' : 'inativa'} / liberacao por jogador nesta aba</p>
-                        </div>
-                      </div>
-                      <div className="mt-3 grid gap-1 text-xs text-zinc-400">
-                        <div className="flex flex-wrap gap-2">
-                          {[build.offhand_icon_url, build.helmet_icon_url, build.chest_icon_url, build.boots_icon_url].filter(Boolean).map((icon) => (
-                            <img alt="" className="h-9 w-9 rounded bg-zinc-900 object-contain" key={icon} src={icon ?? ''} />
-                          ))}
-                        </div>
-                        <span>Equip: {[build.offhand, build.helmet, build.chest, build.boots, build.cape].filter(Boolean).join(' / ') || 'Nao informado'}</span>
-                        <span>Consumiveis: {[build.food, build.potion].filter(Boolean).join(' / ') || 'Nao informado'}</span>
-                        {build.recommended_mount ? (() => {
-                          const mount = mountsByName.get(build.recommended_mount || '');
-                          return <span>Montaria sugerida: {mount ? `${mountLabel(mount)} (${mountDetail(mount)})` : build.recommended_mount}</span>;
-                        })() : null}
-                      </div>
-                      <div className="mt-3 flex gap-2">
-                        {build.active ? (
-                          <button className="button-secondary h-9" disabled={saving} onClick={() => void deactivateBuild(build)} type="button">Inativar</button>
-                        ) : (
-                          <button className="button-primary h-9" disabled={saving} onClick={() => void reactivateBuild(build)} type="button">Reativar</button>
-                        )}
-                      </div>
+                  {paginatedBuilds.map((build) => (
+                    <div key={build.id}>
+                      {buildShowcaseCard({
+                        build,
+                        muted: !build.active,
+                        status: <p className="text-xs text-zinc-500">{build.active ? 'Ativa' : 'Inativa'} / liberacao por jogador nesta aba</p>,
+                        action: (
+                          <div className="flex flex-wrap gap-2">
+                            <button className="button-primary h-9" disabled={saving} onClick={() => startBuildEdit(build)} type="button">Editar</button>
+                            {build.active ? (
+                              <button className="button-secondary h-9" disabled={saving} onClick={() => void deactivateBuild(build)} type="button">Inativar</button>
+                            ) : (
+                              <button className="button-secondary h-9" disabled={saving} onClick={() => void reactivateBuild(build)} type="button">Reativar</button>
+                            )}
+                          </div>
+                        ),
+                      })}
                     </div>
                   ))}
+                </div>
+                <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-zinc-800 pt-3">
+                  <p className="text-xs text-zinc-500">
+                    Mostrando {builds.length ? (buildsPage - 1) * buildsPerPage + 1 : 0}-{Math.min(buildsPage * buildsPerPage, builds.length)} de {builds.length} build(s)
+                  </p>
+                  <div className="flex items-center gap-2">
+                    <button
+                      className="button-secondary h-9"
+                      disabled={buildsPage <= 1}
+                      onClick={() => setBuildsPage((current) => Math.max(current - 1, 1))}
+                      type="button"
+                    >
+                      Anterior
+                    </button>
+                    <span className="text-xs font-semibold text-zinc-400">
+                      {buildsPage}/{buildsPageCount}
+                    </span>
+                    <button
+                      className="button-secondary h-9"
+                      disabled={buildsPage >= buildsPageCount}
+                      onClick={() => setBuildsPage((current) => Math.min(current + 1, buildsPageCount))}
+                      type="button"
+                    >
+                      Proxima
+                    </button>
+                  </div>
                 </div>
               </Panel>
 
               <Panel title="Liberar builds por jogador">
-                <div className="overflow-x-auto">
-                  <table className="w-full min-w-[760px] border-collapse text-sm">
-                    <thead>
-                      <tr className="border-b border-zinc-800 text-left text-xs uppercase text-zinc-500">
-                        <th className="py-3">Jogador</th>
-                        {builds.map((build) => <th key={build.id}>{build.name}</th>)}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {players.filter((player) => player.active).map((player) => (
-                        <tr className="border-b border-zinc-800/70" key={player.id}>
-                          <td className="py-3 font-semibold">{player.albion_nick}</td>
-                          {builds.map((build) => {
-                            const approved = approvals.some((approval) => approval.player_id === player.id && approval.build_id === build.id && approval.approved);
-                            return (
-                              <td key={build.id}>
-                                <button className={approved ? 'button-primary h-9' : 'button-secondary h-9'} disabled={saving} onClick={() => toggleApproval(player, build)} type="button">
-                                  {approved ? 'Liberada' : 'Bloqueada'}
-                                </button>
-                              </td>
-                            );
-                          })}
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                <div className="grid gap-4">
+                  <div className="grid gap-3 lg:grid-cols-[10rem_1fr_1fr_auto] lg:items-end">
+                    <label className="grid gap-2">
+                      <span className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Caller</span>
+                      <select className="control" onChange={(event) => setApprovalForm({ ...approvalForm, caller: event.target.value })} value={approvalForm.caller}>
+                        {buildCallers.map((caller) => <option key={caller} value={caller}>{caller}</option>)}
+                      </select>
+                    </label>
+                    <SearchableSelect
+                      label="Build"
+                      options={activeBuilds.map((build) => ({
+                        value: String(build.id),
+                        label: `${build.name} / ${build.build_type} / ${build.role}`,
+                        detail: build.weapon_name,
+                      }))}
+                      onChange={(value) => setApprovalForm({ ...approvalForm, buildId: value })}
+                      onSearchChange={(value) => setApprovalForm({ ...approvalForm, buildSearch: value })}
+                      placeholder="Buscar build"
+                      search={approvalForm.buildSearch}
+                      value={approvalForm.buildId}
+                    />
+                    <SearchableSelect
+                      label="Player"
+                      options={activePlayers.map((player) => ({
+                        value: String(player.id),
+                        label: player.albion_nick,
+                        detail: player.discord_name || player.discord_id || `ID ${player.id}`,
+                      }))}
+                      onChange={(value) => setApprovalForm({ ...approvalForm, playerId: value })}
+                      onSearchChange={(value) => setApprovalForm({ ...approvalForm, playerSearch: value })}
+                      placeholder="Buscar player"
+                      search={approvalForm.playerSearch}
+                      value={approvalForm.playerId}
+                    />
+                    <button
+                      className={selectedApproval?.approved ? 'button-secondary' : 'button-primary'}
+                      disabled={saving || !selectedApprovalPlayer || !selectedApprovalBuild}
+                      onClick={() => void toggleSelectedApproval()}
+                      type="button"
+                    >
+                      {selectedApproval?.approved ? 'Bloquear' : 'Liberar'}
+                    </button>
+                  </div>
+
+                  {selectedApprovalPlayer && selectedApprovalBuild ? (
+                    <div className="rounded border border-zinc-800 bg-zinc-950/70 p-3 text-sm text-zinc-300">
+                      <span className="font-semibold text-zinc-100">{selectedApprovalPlayer.albion_nick}</span>
+                      {' / '}
+                      <span>{selectedApprovalBuild.name}</span>
+                      {' / '}
+                      <span className={selectedApproval?.approved ? 'font-semibold text-emerald-300' : 'font-semibold text-red-300'}>
+                        {selectedApproval?.approved ? `Liberada por ${approvalForm.caller}` : `Bloqueada para ${approvalForm.caller}`}
+                      </span>
+                    </div>
+                  ) : null}
+
+                  <div className="grid max-h-72 gap-2 overflow-auto rounded border border-zinc-800 bg-zinc-950 p-2">
+                    {approvals
+                      .filter((approval) => (approval.caller ?? '') === approvalForm.caller)
+                      .filter((approval) => {
+                        const build = builds.find((item) => item.id === approval.build_id);
+                        const player = players.find((item) => item.id === approval.player_id);
+                        const search = `${build?.name ?? ''} ${player?.albion_nick ?? ''}`.toLowerCase();
+                        return search.includes(approvalForm.buildSearch.toLowerCase()) && search.includes(approvalForm.playerSearch.toLowerCase());
+                      })
+                      .slice(0, 40)
+                      .map((approval) => {
+                        const build = builds.find((item) => item.id === approval.build_id);
+                        const player = players.find((item) => item.id === approval.player_id);
+                        return (
+                          <div className="grid gap-2 rounded border border-zinc-800 bg-zinc-900/50 p-3 text-sm sm:grid-cols-[1fr_1fr_auto] sm:items-center" key={approval.id}>
+                            <span className="min-w-0 truncate font-semibold text-zinc-100">{player?.albion_nick ?? `Player ${approval.player_id}`}</span>
+                            <span className="min-w-0 truncate text-zinc-400">{build?.name ?? `Build ${approval.build_id}`}</span>
+                            <span className={approval.approved ? 'font-semibold text-emerald-300' : 'font-semibold text-red-300'}>
+                              {approval.approved ? 'Liberada' : 'Bloqueada'}
+                            </span>
+                          </div>
+                        );
+                      })}
+                    {!approvals.filter((approval) => (approval.caller ?? '') === approvalForm.caller).length ? (
+                      <p className="p-2 text-sm text-zinc-500">Nenhuma autorizacao registrada para este caller.</p>
+                    ) : null}
+                  </div>
                 </div>
               </Panel>
             </div>
@@ -2109,15 +3064,36 @@ export default function ZvZConsole({
                   required
                   value={checkinForm.nick}
                 />
+                {checkinForm.nick.trim() && !players.some((player) => player.albion_nick.trim().toLowerCase() === checkinForm.nick.trim().toLowerCase()) ? (
+                  <div className="rounded border border-amber-400/30 bg-amber-400/10 px-3 py-2 text-sm text-amber-100">
+                    <div className="grid gap-2 sm:grid-cols-[1fr_auto] sm:items-center">
+                      <span>Nick ainda nao cadastrado.</span>
+                      <button className="button-secondary h-9" disabled={saving} onClick={() => void registerCheckinPlayer()} type="button">
+                        Cadastrar nick
+                      </button>
+                    </div>
+                  </div>
+                ) : null}
                 {authSession ? (
                   <p className="text-xs text-zinc-500">Nick carregado do seu perfil Discord. Edite e salve acima caso precise corrigir.</p>
                 ) : null}
-                <select className="control" onChange={(event) => setCheckinForm({ ...checkinForm, eventId: event.target.value, buildId: '', mount: '' })} required value={checkinForm.eventId}>
+                <select
+                  className="control"
+                  disabled={Boolean(lockedEventId)}
+                  onChange={(event) => setCheckinForm({ ...checkinForm, eventId: event.target.value, buildId: '', mount: '' })}
+                  required
+                  value={checkinForm.eventId}
+                >
                   <option value="">Selecione o evento</option>
-                  {events.filter((event) => event.status !== 'closed').map((event) => (
+                  {events.filter((event) => event.status !== 'closed' || String(event.id) === lockedEventId).map((event) => (
                     <option key={event.id} value={event.id}>{event.title} - {formatDate(event.event_date)}</option>
                   ))}
                 </select>
+                {lockedEventMissing ? (
+                  <div className="rounded border border-red-400/30 bg-red-400/10 px-3 py-2 text-sm text-red-100">
+                    Evento nao encontrado. Confira se o link esta correto.
+                  </div>
+                ) : null}
                 {selectedCheckinEvent ? (
                   <div className="rounded border border-zinc-800 bg-zinc-950 p-3 text-sm text-zinc-300">
                     {selectedCheckinEventIsDungeon ? (
@@ -2128,6 +3104,9 @@ export default function ZvZConsole({
                     ) : (
                       <>
                         <p className="font-semibold text-zinc-100">Montaria: galope {selectedCheckinEvent.mount_gallop_requirement ?? 120}%+</p>
+                        {selectedCheckinEvent.status === 'closed' ? (
+                          <p className="mt-1 text-xs font-semibold text-red-300">Este evento esta fechado para check-in.</p>
+                        ) : null}
                         {selectedCheckinEvent.mount_requirement_note ? (
                           <p className="mt-1 text-xs text-zinc-500">{selectedCheckinEvent.mount_requirement_note}</p>
                         ) : null}
@@ -2138,7 +3117,7 @@ export default function ZvZConsole({
                 {!selectedCheckinEventIsDungeon ? (
                   <>
                     <select className="control" disabled={!availableBuilds.length} onChange={(event) => setCheckinForm({ ...checkinForm, buildId: event.target.value, mount: '' })} required value={checkinForm.buildId}>
-                      <option value="">Build liberada</option>
+                      <option value="">Clique em uma build ao lado ou selecione aqui</option>
                       {availableBuilds.map((build) => {
                         const slot = build.event_slots.find((item) => String(item.event_id) === checkinForm.eventId);
                         return <option key={build.id} value={build.id}>{build.name} - {slot?.remaining_slots ?? 0} vaga(s)</option>;
@@ -2165,12 +3144,11 @@ export default function ZvZConsole({
                         </div>
                       </div>
                     ) : null}
-                    <button className="button-primary" disabled={saving || !selectedCheckinBuild} type="submit">Confirmar check-in</button>
+                    <button className="button-primary" disabled={saving || !selectedCheckinBuild || selectedCheckinEvent?.status === 'closed'} type="submit">Confirmar check-in</button>
                   </>
                 ) : (
                   <div className="rounded border border-red-400/30 bg-red-400/10 px-3 py-2 text-sm text-red-100">
-                    Clique em uma build ao lado para enviar a solicitacao ao lider.
-                    {!authSession ? ' E necessario entrar com Discord.' : null}
+                    Informe seu nick e clique em uma build ao lado para enviar a solicitacao ao lider.
                   </div>
                 )}
               </form>
@@ -2195,48 +3173,47 @@ export default function ZvZConsole({
               ) : null}
               <div className="grid gap-3 md:grid-cols-2">
                 {availableBuilds.map((build) => {
-                  const requestForBuild = buildRequests.find(
-                    (request) => request.event_id === Number(checkinForm.eventId) && request.build_id === build.id && request.player_id === authSession?.userId,
-                  );
+                  const requestForBuild = buildRequests.find((request) => {
+                    if (request.event_id !== Number(checkinForm.eventId) || request.build_id !== build.id) return false;
+                    if (authSession?.userId) return request.player_id === authSession.userId;
+                    return request.player_nick?.trim().toLowerCase() === checkinForm.nick.trim().toLowerCase();
+                  });
+                  const selected = checkinForm.buildId === String(build.id);
+                  const slot = build.event_slots.find((item) => String(item.event_id) === checkinForm.eventId);
                   return (
-                    <div className="item-card" key={build.id}>
-                      <div className="flex gap-3">
-                        {build.weapon_icon_url ? <img alt="" className="h-14 w-14 rounded bg-zinc-900 object-contain" src={build.weapon_icon_url} /> : null}
-                        <div>
-                          <p className="font-semibold">{build.name}</p>
-                          <p className="text-sm text-zinc-400">{build.role} / {build.weapon_name}</p>
-                          {!selectedCheckinEventIsDungeon ? (() => {
-                            const slot = build.event_slots.find((item) => String(item.event_id) === checkinForm.eventId);
-                            return <p className={`mt-1 text-xs font-semibold ${slotTone(slot)}`}>{slot?.remaining_slots ?? 0} vaga(s) restantes / {slotLabel(slot)}</p>;
-                          })() : (
-                            <p className="mt-1 text-xs text-zinc-500">
-                              {requestForBuild ? `Solicitacao: ${requestForBuild.status}` : 'Clique para solicitar esta build'}
-                            </p>
-                          )}
-                          {(() => {
-                            const mount = mountsByName.get(build.recommended_mount || '');
-                            return build.recommended_mount ? <p className="mt-1 text-xs text-zinc-500">Montaria sugerida: {mount ? `${mountLabel(mount)} - ${mountDetail(mount)}` : build.recommended_mount}</p> : null;
-                          })()}
-                        </div>
-                      </div>
-                      <div className="mt-3 text-xs text-zinc-400">
-                        <div className="mb-2 flex flex-wrap gap-2">
-                          {[build.offhand_icon_url, build.helmet_icon_url, build.chest_icon_url, build.boots_icon_url].filter(Boolean).map((icon) => (
-                            <img alt="" className="h-9 w-9 rounded bg-zinc-900 object-contain" key={icon} src={icon ?? ''} />
-                          ))}
-                        </div>
-                        {[build.helmet, build.chest, build.boots, build.cape, build.food, build.potion].filter(Boolean).join(' / ') || 'Equipamentos complementares nao informados'}
-                      </div>
-                      {selectedCheckinEventIsDungeon ? (
+                    <div key={build.id}>
+                      {buildShowcaseCard({
+                        build,
+                        selected,
+                        onSelect: selectedCheckinEventIsDungeon
+                          ? undefined
+                          : () => setCheckinForm({ ...checkinForm, buildId: String(build.id), mount: '' }),
+                        status: !selectedCheckinEventIsDungeon ? (
+                          <p className={`text-xs font-semibold ${slotTone(slot)}`}>{slot?.remaining_slots ?? 0} vaga(s) restantes / {slotLabel(slot)}</p>
+                        ) : (
+                          <p className="text-xs text-zinc-500">
+                            {requestForBuild ? `Solicitacao: ${requestForBuild.status}` : 'Confira set e skills antes de solicitar'}
+                          </p>
+                        ),
+                        action: selectedCheckinEventIsDungeon ? (
                         <button
                           className="button-primary mt-3 h-9"
-                          disabled={saving || !authSession || Boolean(requestForBuild)}
+                          disabled={saving || !checkinForm.nick.trim() || Boolean(requestForBuild) || selectedCheckinEvent?.status === 'closed'}
                           onClick={() => void requestDungeonBuild(build)}
                           type="button"
                         >
                           {requestForBuild ? 'Solicitado' : 'Solicitar ao lider'}
                         </button>
-                      ) : null}
+                        ) : selected ? (
+                          <span className="rounded border border-emerald-400/30 bg-emerald-400/10 px-3 py-2 text-xs font-bold uppercase tracking-wide text-emerald-100">
+                            Build selecionada
+                          </span>
+                        ) : (
+                          <span className="rounded border border-zinc-700 px-3 py-2 text-xs font-bold uppercase tracking-wide text-zinc-400">
+                            Clicar para selecionar
+                          </span>
+                        ),
+                      })}
                     </div>
                   );
                 })}
@@ -2245,6 +3222,116 @@ export default function ZvZConsole({
                     {selectedCheckinEventIsDungeon ? 'Nenhuma build ativa cadastrada para solicitar.' : 'Informe nick e evento para ver builds autorizadas.'}
                   </p>
                 ) : null}
+              </div>
+            </Panel>
+          </section>
+        ) : null}
+
+        {view === 'players' && canManage ? (
+          <section className="grid gap-5 xl:grid-cols-[0.9fr_1.1fr]">
+            <Panel title="Editar jogadores">
+              <div className="grid gap-3">
+                {players.map((player) => (
+                  <div className="rounded border border-zinc-800 bg-zinc-950 p-3" key={player.id}>
+                    <div className="grid gap-3 md:grid-cols-[1fr_auto] md:items-center">
+                      <div>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <p className="font-semibold text-zinc-100">{player.albion_nick}</p>
+                          {player.role === 'caller' ? <span className="rounded border border-red-400/40 px-2 py-0.5 text-[10px] font-bold uppercase text-red-200">Caller</span> : null}
+                          {player.is_staff ? <span className="rounded border border-emerald-400/40 px-2 py-0.5 text-[10px] font-bold uppercase text-emerald-200">Staff</span> : null}
+                          {!player.active ? <span className="rounded border border-zinc-600 px-2 py-0.5 text-[10px] font-bold uppercase text-zinc-400">Inativo</span> : null}
+                        </div>
+                        <p className="mt-1 text-xs text-zinc-500">
+                          {approvals.filter((approval) => approval.player_id === player.id && approval.approved).length} build(s) liberada(s) / {player.participations} pres. / nota {player.rating.toFixed(1)}
+                        </p>
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        <select
+                          className="control h-9 w-32"
+                          disabled={saving || player.role === 'dev'}
+                          onChange={(event) => void updatePlayerAccess(player, {
+                            role: event.target.value,
+                            is_staff: event.target.value === 'staff' || event.target.value === 'dev',
+                            is_leader: event.target.value === 'caller' || event.target.value === 'leader' || event.target.value === 'staff' || event.target.value === 'dev',
+                          })}
+                          value={player.role}
+                        >
+                          <option value="player">Membro</option>
+                          <option value="caller">Caller</option>
+                          <option value="leader">Lider</option>
+                          <option value="staff">Staff</option>
+                          <option value="dev">Dev</option>
+                        </select>
+                        <button
+                          className={approvalForm.playerId === String(player.id) ? 'button-primary h-9' : 'button-secondary h-9'}
+                          onClick={() => setApprovalForm({ ...approvalForm, playerId: String(player.id), playerSearch: player.albion_nick })}
+                          type="button"
+                        >
+                          Builds
+                        </button>
+                        {player.active ? (
+                          <button className="button-secondary h-9" disabled={saving || player.role === 'dev'} onClick={() => void deactivatePlayer(player)} type="button">Inativar</button>
+                        ) : (
+                          <button className="button-primary h-9" disabled={saving} onClick={() => void reactivatePlayer(player)} type="button">Reativar</button>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </Panel>
+
+            <Panel title="Builds do jogador">
+              <div className="grid gap-3">
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <SearchableSelect
+                    label="Player"
+                    options={activePlayers.map((player) => ({
+                      value: String(player.id),
+                      label: player.albion_nick,
+                      detail: player.role === 'caller' ? 'Caller' : player.role,
+                    }))}
+                    onChange={(value) => setApprovalForm({ ...approvalForm, playerId: value })}
+                    onSearchChange={(value) => setApprovalForm({ ...approvalForm, playerSearch: value })}
+                    placeholder="Buscar player"
+                    search={approvalForm.playerSearch}
+                    value={approvalForm.playerId}
+                  />
+                  <label className="grid gap-2">
+                    <span className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Caller</span>
+                    <select className="control" onChange={(event) => setApprovalForm({ ...approvalForm, caller: event.target.value })} value={approvalForm.caller}>
+                      {buildCallers.map((caller) => <option key={caller} value={caller}>{caller}</option>)}
+                    </select>
+                  </label>
+                </div>
+
+                {selectedApprovalPlayer ? (
+                  <div className="grid max-h-[34rem] gap-2 overflow-auto rounded border border-zinc-800 bg-zinc-950 p-2">
+                    {activeBuilds.map((build) => {
+                      const approval = approvals.find(
+                        (item) => item.player_id === selectedApprovalPlayer.id && item.build_id === build.id && (item.caller ?? '') === approvalForm.caller,
+                      );
+                      return (
+                        <div className="grid gap-2 rounded border border-zinc-800 bg-zinc-900/50 p-3 sm:grid-cols-[1fr_auto] sm:items-center" key={build.id}>
+                          <div className="min-w-0">
+                            <p className="truncate text-sm font-semibold text-zinc-100">{build.name}</p>
+                            <p className="text-xs text-zinc-500">{build.build_type} / {build.role} / {build.weapon_name}</p>
+                          </div>
+                          <button
+                            className={approval?.approved ? 'button-primary h-9' : 'button-secondary h-9'}
+                            disabled={saving}
+                            onClick={() => void toggleApproval(selectedApprovalPlayer, build, approvalForm.caller)}
+                            type="button"
+                          >
+                            {approval?.approved ? 'Liberada' : 'Liberar'}
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <p className="rounded border border-zinc-800 bg-zinc-950 p-3 text-sm text-zinc-500">Selecione um jogador para editar as builds liberadas.</p>
+                )}
               </div>
             </Panel>
           </section>
@@ -2296,11 +3383,12 @@ export default function ZvZConsole({
                               onChange={(event) => void updatePlayerAccess(player, {
                                 role: event.target.value,
                                 is_staff: event.target.value === 'staff' || event.target.value === 'dev',
-                                is_leader: event.target.value === 'leader' || event.target.value === 'staff' || event.target.value === 'dev',
+                                is_leader: event.target.value === 'caller' || event.target.value === 'leader' || event.target.value === 'staff' || event.target.value === 'dev',
                               })}
                               value={player.role}
                             >
                               <option value="player">Membro</option>
+                              <option value="caller">Caller</option>
                               <option value="leader">Lider</option>
                               <option value="staff">Staff</option>
                               <option value="dev">Dev</option>
@@ -2372,8 +3460,8 @@ export default function ZvZConsole({
                 </div>
               ) : (
                 <div className="grid gap-3">
-                  <p className="text-sm text-zinc-400">Entre com Discord para vincular seu nick do Albion e participar dos check-ins.</p>
-                  <button className="button-primary" onClick={() => void loginWithDiscord()} type="button">Entrar com Discord</button>
+                  <p className="text-sm text-zinc-400">O login Discord e opcional. Use a aba Check-in com seu nick do Albion para participar.</p>
+                  <button className="button-secondary" onClick={() => void loginWithDiscord()} type="button">Entrar como staff</button>
                 </div>
               )}
             </Panel>
@@ -2383,6 +3471,9 @@ export default function ZvZConsole({
                   <div className="item-card" key={event.id}>
                     <p className="font-semibold">{event.title}</p>
                     <p className="mt-1 text-sm text-zinc-400">{event.content_type} / {formatDate(event.event_date)}</p>
+                    <a className="button-secondary mt-3 grid h-9 place-items-center" href={`/evento/${event.id}`}>
+                      Abrir check-in
+                    </a>
                   </div>
                 ))}
               </div>
@@ -2420,12 +3511,54 @@ function BucketList({ title, rows }: { title: string; rows: Bucket[] }) {
   );
 }
 
-function Panel({ title, children }: { title: string; children: ReactNode }) {
+function Panel({ title, children, titleAction }: { title: string; children: ReactNode; titleAction?: ReactNode }) {
   return (
     <section className="surface rounded-md p-4">
-      <h2 className="mb-4 text-base font-bold text-white">{title}</h2>
+      <div className="mb-4 flex items-center justify-between gap-3">
+        <h2 className="text-base font-bold text-white">{title}</h2>
+        {titleAction ? <div>{titleAction}</div> : null}
+      </div>
       {children}
     </section>
+  );
+}
+
+function SearchableSelect({
+  label,
+  options,
+  value,
+  search,
+  placeholder,
+  onChange,
+  onSearchChange,
+}: {
+  label: string;
+  options: { value: string; label: string; detail?: string }[];
+  value: string;
+  search: string;
+  placeholder: string;
+  onChange: (value: string) => void;
+  onSearchChange: (value: string) => void;
+}) {
+  const normalizedSearch = search.trim().toLowerCase();
+  const filtered = options.filter((option) => {
+    const text = `${option.label} ${option.detail ?? ''}`.toLowerCase();
+    return text.includes(normalizedSearch);
+  });
+
+  return (
+    <label className="grid gap-2">
+      <span className="text-xs font-semibold uppercase tracking-wide text-zinc-500">{label}</span>
+      <input className="control h-9" onChange={(event) => onSearchChange(event.target.value)} placeholder={placeholder} value={search} />
+      <select className="control" onChange={(event) => onChange(event.target.value)} value={value}>
+        <option value="">Selecionar</option>
+        {filtered.map((option) => (
+          <option key={option.value} value={option.value}>
+            {option.label}{option.detail ? ` - ${option.detail}` : ''}
+          </option>
+        ))}
+      </select>
+    </label>
   );
 }
 

@@ -62,10 +62,16 @@ class UserRead(UserBase):
 class ZvZEventBase(BaseModel):
     title: str
     content_type: str = 'ZvZ'
+    caller: Optional[str] = None
     event_date: datetime
     status: str = 'draft'
     mount_gallop_requirement: int = 120
     mount_requirement_note: Optional[str] = None
+    discord_channel_id: Optional[str] = None
+    discord_message_id: Optional[str] = None
+    discord_message_url: Optional[str] = None
+    discord_message_extra: Optional[str] = None
+    discord_last_sync_at: Optional[datetime] = None
 
 class ZvZEventCreate(ZvZEventBase):
     guild_id: int
@@ -74,10 +80,16 @@ class ZvZEventCreate(ZvZEventBase):
 class ZvZEventUpdate(BaseModel):
     title: Optional[str] = None
     content_type: Optional[str] = None
+    caller: Optional[str] = None
     event_date: Optional[datetime] = None
     status: Optional[str] = None
     mount_gallop_requirement: Optional[int] = None
     mount_requirement_note: Optional[str] = None
+    discord_channel_id: Optional[str] = None
+    discord_message_id: Optional[str] = None
+    discord_message_url: Optional[str] = None
+    discord_message_extra: Optional[str] = None
+    discord_last_sync_at: Optional[datetime] = None
 
 class ZvZEventDuplicate(BaseModel):
     title: Optional[str] = None
@@ -92,6 +104,13 @@ class ZvZEventRead(ZvZEventBase):
 
     class Config:
         from_attributes = True
+
+
+class DiscordEventPreview(BaseModel):
+    event_id: int
+    content: str
+    message_url: Optional[str] = None
+    last_sync_at: Optional[datetime] = None
 
 class CheckInCreate(BaseModel):
     guild_id: int
@@ -122,6 +141,7 @@ class CheckInUpdate(BaseModel):
 class BuildRequestCreate(BaseModel):
     event_id: int
     build_id: int
+    player_nick: Optional[str] = None
     notes: Optional[str] = None
     weapon_power: Optional[int] = None
 
@@ -168,18 +188,22 @@ class BuildCreate(BaseModel):
     weapon_name: str
     weapon_item_id: Optional[str] = None
     weapon_icon_url: Optional[str] = None
+    weapon_skills: Optional[str] = None
     offhand: Optional[str] = None
     offhand_item_id: Optional[str] = None
     offhand_icon_url: Optional[str] = None
     helmet: Optional[str] = None
     helmet_item_id: Optional[str] = None
     helmet_icon_url: Optional[str] = None
+    helmet_skills: Optional[str] = None
     chest: Optional[str] = None
     chest_item_id: Optional[str] = None
     chest_icon_url: Optional[str] = None
+    chest_skills: Optional[str] = None
     boots: Optional[str] = None
     boots_item_id: Optional[str] = None
     boots_icon_url: Optional[str] = None
+    boots_skills: Optional[str] = None
     cape: Optional[str] = None
     food: Optional[str] = None
     potion: Optional[str] = None
@@ -198,18 +222,22 @@ class BuildUpdate(BaseModel):
     weapon_name: Optional[str] = None
     weapon_item_id: Optional[str] = None
     weapon_icon_url: Optional[str] = None
+    weapon_skills: Optional[str] = None
     offhand: Optional[str] = None
     offhand_item_id: Optional[str] = None
     offhand_icon_url: Optional[str] = None
     helmet: Optional[str] = None
     helmet_item_id: Optional[str] = None
     helmet_icon_url: Optional[str] = None
+    helmet_skills: Optional[str] = None
     chest: Optional[str] = None
     chest_item_id: Optional[str] = None
     chest_icon_url: Optional[str] = None
+    chest_skills: Optional[str] = None
     boots: Optional[str] = None
     boots_item_id: Optional[str] = None
     boots_icon_url: Optional[str] = None
+    boots_skills: Optional[str] = None
     cape: Optional[str] = None
     food: Optional[str] = None
     potion: Optional[str] = None
@@ -230,18 +258,22 @@ class BuildRead(BaseModel):
     weapon_name: str
     weapon_item_id: Optional[str]
     weapon_icon_url: Optional[str]
+    weapon_skills: Optional[str]
     offhand: Optional[str]
     offhand_item_id: Optional[str]
     offhand_icon_url: Optional[str]
     helmet: Optional[str]
     helmet_item_id: Optional[str]
     helmet_icon_url: Optional[str]
+    helmet_skills: Optional[str]
     chest: Optional[str]
     chest_item_id: Optional[str]
     chest_icon_url: Optional[str]
+    chest_skills: Optional[str]
     boots: Optional[str]
     boots_item_id: Optional[str]
     boots_icon_url: Optional[str]
+    boots_skills: Optional[str]
     cape: Optional[str]
     food: Optional[str]
     potion: Optional[str]
@@ -259,6 +291,7 @@ class PlayerBuildApprovalCreate(BaseModel):
     guild_id: int
     player_id: int
     build_id: int
+    caller: Optional[str] = None
     approved: bool = True
     notes: Optional[str] = None
 

@@ -4,10 +4,11 @@ from typing import List
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
-from app.core.auth import get_current_user, require_leader
+from app.core.auth import get_current_user, get_optional_current_user, require_leader
 from app.deps import get_db
 from app.models import Build, BuildRequest, CheckIn, EventBuild, User, ZvZEvent
 from app.schemas import BuildRequestCreate, BuildRequestRead, BuildRequestUpdate
+from app.services.discord import publish_event_to_discord
 
 router = APIRouter()
 
@@ -42,7 +43,7 @@ def serialize_request(request: BuildRequest) -> BuildRequestRead:
 def create_build_request(
     payload: BuildRequestCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User | None = Depends(get_optional_current_user),
 ):
     event = db.get(ZvZEvent, payload.event_id)
     build = db.get(Build, payload.build_id)
@@ -59,13 +60,29 @@ def create_build_request(
     if not linked:
         raise HTTPException(status_code=403, detail='Build is not configured for this event')
 
+    player = current_user
+    if not player:
+        player_nick = (payload.player_nick or '').strip()
+        if not player_nick:
+            raise HTTPException(status_code=400, detail='Informe o nick Albion para solicitar build')
+        player = (
+            db.query(User)
+            .filter(User.guild_id == event.guild_id)
+            .filter(User.albion_nick.ilike(player_nick))
+            .first()
+        )
+        if not player:
+            raise HTTPException(status_code=404, detail='Nick nao encontrado no cadastro')
+    if not player.active:
+        raise HTTPException(status_code=403, detail='Player is inactive')
+
     taken_slots = db.query(CheckIn).filter(CheckIn.event_id == event.id, CheckIn.build_id == build.id).count()
     if taken_slots >= max(linked.max_slots or 1, 1):
         raise HTTPException(status_code=409, detail='No slots left for this build in this event')
 
     existing_checkin = (
         db.query(CheckIn)
-        .filter(CheckIn.event_id == event.id, CheckIn.user_id == current_user.id)
+        .filter(CheckIn.event_id == event.id, CheckIn.user_id == player.id)
         .first()
     )
     if existing_checkin:
@@ -75,7 +92,7 @@ def create_build_request(
         db.query(BuildRequest)
         .filter(
             BuildRequest.event_id == event.id,
-            BuildRequest.player_id == current_user.id,
+            BuildRequest.player_id == player.id,
             BuildRequest.status == 'pending',
         )
         .first()
@@ -86,7 +103,7 @@ def create_build_request(
     request = BuildRequest(
         guild_id=event.guild_id,
         event_id=event.id,
-        player_id=current_user.id,
+        player_id=player.id,
         build_id=build.id,
         notes=payload.notes,
         weapon_power=payload.weapon_power,
@@ -113,7 +130,7 @@ def list_build_requests(
         query = query.filter(BuildRequest.status == status_filter)
 
     is_staff = current_user.is_staff or current_user.role in {'staff', 'dev'}
-    can_lead = current_user.is_leader or current_user.role == 'leader'
+    can_lead = current_user.is_leader or current_user.role in {'caller', 'leader'}
     if mine:
         query = query.filter(BuildRequest.player_id == current_user.id)
     elif is_staff:
@@ -138,7 +155,8 @@ def update_build_request(
         raise HTTPException(status_code=404, detail='Build request not found')
     is_staff = current_user.is_staff or current_user.role in {'staff', 'dev'}
     is_event_leader = request.event and request.event.created_by == current_user.id
-    if not is_staff and not is_event_leader:
+    is_caller = current_user.role == 'caller'
+    if not is_staff and not is_event_leader and not is_caller:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail='Only the event leader can decide this request')
     if request.status != 'pending':
         raise HTTPException(status_code=400, detail='Build request already decided')
@@ -183,6 +201,10 @@ def update_build_request(
             db.add(checkin)
             if request.player:
                 request.player.participations += 1
+            db.flush()
+            if request.event and request.event.status != 'draft':
+                db.expire(request.event, ['checkins'])
+                publish_event_to_discord(request.event, db=db)
 
     db.commit()
     db.refresh(request)

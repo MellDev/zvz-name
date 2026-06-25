@@ -8,6 +8,9 @@ from .checkins import router as checkins_router
 from .dashboard import router as dashboard_router
 from .weapons import router as weapons_router
 from .mounts import router as mounts_router
+from .builds import router as builds_router
+from .albion import router as albion_router
+from .build_requests import router as build_requests_router
 
 router = APIRouter(prefix='/api')
 router.include_router(auth_router, prefix='/auth', tags=['auth'])
@@ -18,3 +21,6 @@ router.include_router(checkins_router, prefix='/checkins', tags=['checkins'])
 router.include_router(dashboard_router, prefix='/dashboard', tags=['dashboard'])
 router.include_router(weapons_router, prefix='/weapons', tags=['weapons'])
 router.include_router(mounts_router, prefix='/mounts', tags=['mounts'])
+router.include_router(builds_router, prefix='/builds', tags=['builds'])
+router.include_router(albion_router, prefix='/albion', tags=['albion'])
+router.include_router(build_requests_router, prefix='/build-requests', tags=['build-requests'])

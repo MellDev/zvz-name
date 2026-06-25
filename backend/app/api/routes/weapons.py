@@ -16,7 +16,12 @@ def create_weapon(payload: dict, db: Session = Depends(get_db)):
     db.add(weapon)
     db.commit()
     db.refresh(weapon)
-    return [weapon]
+    return [{
+        'id': weapon.id,
+        'weapon_name': weapon.weapon_name,
+        'weapon_category': weapon.weapon_category,
+        'active': weapon.active,
+    }]
 
 @router.get('/', response_model=List[dict])
 def list_weapons(db: Session = Depends(get_db)):

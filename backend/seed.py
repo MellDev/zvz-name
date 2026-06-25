@@ -1,8 +1,7 @@
 from sqlalchemy.exc import IntegrityError
 
-from backend.app.core.config import settings
-from backend.app.db.session import SessionLocal
-from backend.app.models import Guild, Mount, Weapon, User
+from app.db.session import SessionLocal
+from app.models import Guild, Mount, User, Weapon
 
 DEFAULT_WEAPONS = [
     ('Shadowcaller', 'caster'),

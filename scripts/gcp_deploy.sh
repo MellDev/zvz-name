@@ -15,10 +15,11 @@ REPO_NAME="zvz-name-repo"
 BACKEND_IMAGE="backend"
 FRONTEND_IMAGE="frontend"
 ARTIFACT_HOST="${REGION}-docker.pkg.dev"
-DB_INSTANCE_NAME="zvz-postgres"
+DB_INSTANCE_NAME="zvz-name"
 DB_ROOT_PASSWORD="postgres" # Troque para senha segura
 DB_USER="postgres"
 DB_NAME="zvz"
+SECRET_KEY="${SECRET_KEY:-REPLACE_ME_SECRET}"
 
 # 1) Configurar projeto
 gcloud config set project ${PROJECT_ID}
@@ -56,14 +57,15 @@ gcloud run deploy zvz-backend \
   --image ${ARTIFACT_HOST}/${PROJECT_ID}/${REPO_NAME}/${BACKEND_IMAGE}:latest \
   --platform managed --region ${REGION} \
   --add-cloudsql-instances ${CONN_NAME} \
-  --set-env-vars DATABASE_URL="${DATABASE_URL}",SECRET_KEY="REPLACE_ME_SECRET" \
+  --set-env-vars DATABASE_URL="${DATABASE_URL}",SECRET_KEY="${SECRET_KEY}",BACKEND_CORS_ORIGINS="*" \
   --allow-unauthenticated --quiet
 
 # 8) Deploy do frontend (pode apontar para o backend público)
+BACKEND_URL="$(gcloud run services describe zvz-backend --region=${REGION} --platform=managed --format='value(status.url)')"
 gcloud run deploy zvz-frontend \
   --image ${ARTIFACT_HOST}/${PROJECT_ID}/${REPO_NAME}/${FRONTEND_IMAGE}:latest \
   --platform managed --region ${REGION} \
-  --set-env-vars NEXT_PUBLIC_API_BASE_URL="https://$(gcloud run services describe zvz-backend --region=${REGION} --platform=managed --format='value(status.url)')" \
+  --set-env-vars NEXT_PUBLIC_API_BASE_URL="${BACKEND_URL}" \
   --allow-unauthenticated --quiet
 
 

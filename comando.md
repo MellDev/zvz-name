@@ -1,385 +1,230 @@
-PROMPT COMPLETO — SISTEMA DE GERENCIAMENTO DE MEMBROS E CHECK-IN PARA ZVZ (ALBION ONLINE)
+IMPLEMENTAÇÃO DE BUILDS E VALIDAÇÃO DE PARTICIPAÇÃO EM EVENTOS (ALBION ONLINE)
 
-Você é um Arquiteto de Software Sênior e Desenvolvedor Full Stack. Sua tarefa é desenvolver uma aplicação web completa para gerenciamento de membros, participação em ZvZ e controle de builds de Albion Online.
+Analise todo o código existente antes de realizar qualquer alteração.
 
-O objetivo é criar um SaaS multi-guilda, porém com uma guilda principal (administradora) que terá acesso gratuito.
+OBJETIVO
 
-VISÃO GERAL
+Implementar um sistema completo de Builds para eventos de Albion Online, permitindo que cada participante informe qual build utilizará durante o evento.
 
-Desenvolver uma plataforma web onde:
+A implementação deve respeitar a arquitetura já existente do sistema, reaproveitando componentes, padrões, DAOs, Services, Controllers, Repositories e Models já utilizados.
 
-Jogadores realizam cadastro único.
-Jogadores informam suas armas principais.
-Staff aprova ou reprova armas.
-Antes de cada ZvZ o jogador realiza check-in.
-O sistema contabiliza participações.
-O sistema registra presença por arma.
-O sistema gera estatísticas de presença.
-O sistema gera rankings.
-O sistema controla builds aprovadas.
-Guildas pagantes podem utilizar o sistema isoladamente.
-STACK TECNOLÓGICA
-Frontend
-Next.js 15
-React
-Typescript
-TailwindCSS
-Shadcn/UI
-TanStack Query
-Backend
-FastAPI
-SQLAlchemy
-Alembic
-Pydantic
-Banco
+ETAPA 1 — MODELAGEM DAS BUILDS
 
-Inicialmente:
+Criar uma entidade chamada:
 
-Cloud SQL PostgreSQL (Google Cloud)
-
-Caso o custo seja um problema:
-
-Neon PostgreSQL
-
-A aplicação deve funcionar em ambos.
-
-Autenticação
-
-Discord OAuth2
-
-ESTRUTURA MULTI-TENANT
-
-Criar suporte para múltiplas guildas.
-
-Toda tabela deverá possuir:
-
-guild_id
-
-para isolamento dos dados.
-
-TABELAS
-guilds
-id
-name
-discord_server_id
-plan
-active
-created_at
-users
-id
-guild_id
-
-discord_id
-discord_name
-
-albion_nick
-
-main_weapon_1
-main_weapon_2
-
-weapon_1_approved
-weapon_2_approved
-
-role
-
-is_staff
-
-rating
-
-participations
-
-created_at
-updated_at
-weapons
-id
-
-weapon_name
-weapon_category
-
-active
-mounts
-id
-
-mount_name
-
-active
-zvz_events
-id
-
-guild_id
-
-title
-
-event_date
-
-status
-
-created_by
-
-created_at
-checkins
-id
-
-guild_id
-
-event_id
-
-user_id
-
-weapon_selected
-
-mount_selected
-
-checkin_time
-
-approved
-
-notes
-player_ratings
-id
-
-guild_id
-
-player_id
-
-staff_id
-
-rating
-
-comment
-
-created_at
-FLUXO DE CADASTRO
-Primeiro acesso
-
-Login via Discord.
-
-Capturar:
-
-{
-  "discord_id": "",
-  "discord_name": ""
-}
-
-Após login:
-
-Solicitar:
-
-Nick Albion
-Arma principal 1
-Arma principal 2
-
-As armas devem vir de lista pré-definida.
-
-APROVAÇÃO DE ARMAS
-
-Somente Staff pode aprovar.
-
-Exemplo:
-
-Jogador:
-Mello
-
-Armas:
-✓ Shadowcaller
-✗ Realm Breaker
-
-Se arma não estiver aprovada:
-
-Não pode ser utilizada no check-in.
-
-FLUXO DE CHECK-IN
-
-Página pública:
-
-/participar
-
-Sem login.
+Build
 
 Campos:
 
-Nick Albion
+id
+nome
+arma
+offhand
+capacete
+peitoral
+bota
+capa
+comida
+pocao
+montaria
+nivel_requerido
+criado_em
+atualizado_em
+ativo
+ETAPA 2 — RELAÇÃO COM EVENTOS
+
+Criar relacionamento:
+
 Evento
-Arma
+    -> possui várias Builds
 
-Ao informar o nick:
+Build
+    -> pertence a um Evento
 
-Buscar jogador.
-
-Validar:
-
-Nick informado == Nick cadastrado
-
-Se válido:
-
-Exibir:
-
-Armas aprovadas
-Build da arma
-Montarias permitidas
-SELEÇÃO DE MONTARIA
-
-Após escolher arma:
-
-Mostrar apenas montarias permitidas para aquela build.
+Cada evento poderá possuir várias builds autorizadas.
 
 Exemplo:
 
-Shadowcaller
+Evento ZvZ
 
-Montarias:
-- Frost Ram
-- Direboar
-- Spectral Bat
-CONTADOR DE PARTICIPAÇÕES
+Build:
+- Tank Grovekeeper
+- Tank Heavy Mace
+- DPS Fire
+- DPS Curse
+- Healer Holy
+ETAPA 3 — CHECK-IN COM BUILD
 
-Ao concluir check-in:
+Após o jogador realizar o check-in do evento:
 
-Incrementar:
+Ao invés de finalizar o processo imediatamente:
 
-participations + 1
+Abrir uma nova etapa:
 
-na tabela users.
+Selecionar Build
 
-SISTEMA DE NOTAS
+O usuário deverá escolher uma build entre as builds liberadas para aquele evento.
 
-Todo jogador possui nota.
+Fluxo:
 
-Padrão:
+Entrar Evento
+↓
+Check-in
+↓
+Selecionar Build
+↓
+Confirmar Participação
+ETAPA 4 — VALIDAÇÃO DE MONTARIA
 
-7
+Cada build deverá possuir:
 
-Staff pode alterar.
+montaria_recomendada
 
 Exemplos:
 
-Tank excelente = 9.5
+Swiftclaw
+Direwolf
+Pest Lizard
+Raven
 
-DPS mediano = 6
+Ao selecionar uma build:
 
-Healer destaque = 10
+Exibir ao usuário:
 
-Registrar histórico.
+Build Selecionada
 
-DASHBOARD STAFF
+Arma: Grovekeeper
+Montaria Recomendada: Swiftclaw
+ETAPA 5 — TELA DE BUILDS
 
-Criar dashboard com:
+Criar menu:
 
-Presenças
-Participações por jogador
-Ranking
-Top presentes
-Ranking de notas
-Top players
-Uso de armas
-Shadowcaller → 35%
+Builds
 
-Permafrost → 20%
+Administradores poderão:
 
-Realm Breaker → 15%
-Participações por período
-7 dias
-30 dias
-90 dias
-DASHBOARD DO JOGADOR
+Criar Build
 
-Exibir:
+Campos:
 
-Minha Nota
-
-Minhas Participações
-
-Minhas Armas
-
-Histórico de ZvZ
-REGRAS DE NEGÓCIO
-Nota inicial
-rating = 7
-Participações
-
-Nunca decrementam.
-
-Check-in duplicado
-
-Bloquear.
-
-Um jogador só pode realizar:
-
-1 check-in por evento
+Nome
 Arma
-
-Só pode selecionar:
-
-Armas aprovadas
+Offhand
+Capacete
+Peitoral
+Bota
+Capa
+Comida
+Poção
 Montaria
+Editar Build
+Excluir Build
+Vincular Build ao Evento
+ETAPA 6 — PARTICIPANTES
 
-Só pode selecionar:
+Na tela de participantes adicionar colunas:
 
-Montarias compatíveis com a build
-API
-Auth
-POST /auth/discord
-GET /auth/me
-Jogadores
-POST /players
+Jogador
+Build
+Montaria
+Horário Check-in
+Status
 
-GET /players
+Exemplo:
 
-GET /players/{id}
+Anderson
+Tank Grovekeeper
+Swiftclaw
+19:02
+Confirmado
+ETAPA 7 — DASHBOARD DO EVENTO
 
-PUT /players/{id}
-Eventos
-POST /events
+Adicionar métricas:
 
-GET /events
+Total Participantes
 
-PUT /events/{id}
-Check-ins
-POST /checkins
+Participantes por Build
 
-GET /checkins
+Participantes por Função
+(Tank, DPS, Healer, Support)
 
-GET /checkins/event/{id}
-Dashboard
-GET /dashboard/staff
+Montarias Utilizadas
 
-GET /dashboard/player
-DIFERENCIAL FUTURO
+Builds Mais Utilizadas
+ETAPA 8 — DISTRIBUIÇÃO DE FUNÇÕES
 
-Preparar arquitetura para integração futura com:
+Adicionar classificação automática das builds:
 
-Albion Online API
+Tank
+DPS
+Healer
+Support
+Debuff
+Bomb Squad
 
-Buscar:
+Cada build deverá possuir:
 
-Kill Fame
-PvP Fame
-Guilda atual
-Histórico de personagens
-Discord Bot
+role
 
-Comandos:
+Exemplo:
 
-/registrar
+Grovekeeper -> Tank
+Blazing -> DPS
+Holy Fallen -> Healer
+ETAPA 9 — VALIDAÇÕES
 
-/checkin
+Impedir:
 
-/presenca
+Selecionar build inativa
 
-/ranking
-QUALIDADE OBRIGATÓRIA
+Selecionar build não vinculada ao evento
 
-Antes de finalizar:
+Selecionar build excluída
 
-Criar migrations Alembic.
-Criar Dockerfile.
-Criar docker-compose.
-Criar .env.example.
-Criar documentação Swagger.
-Criar seed inicial.
-Criar testes unitários.
-Criar testes de integração.
-Implementar RBAC (Player / Staff / Admin).
-Implementar auditoria de alterações.
+Confirmar participação sem build
+ETAPA 10 — EXPERIÊNCIA DO USUÁRIO
 
-O código deve seguir padrões de produção, arquitetura escalável, SOLID, Clean Architecture e estar preparado para milhares de jogadores e dezenas de guildas simultaneamente.
+Após confirmar a build:
+
+Exibir resumo:
+
+Evento: ZvZ Fort Sterling
+
+Build:
+Tank Grovekeeper
+
+Equipamentos:
+- Grovekeeper
+- Judicator Armor
+- Guardian Helmet
+- Hunter Shoes
+
+Montaria:
+Swiftclaw
+
+Status:
+Confirmado
+REQUISITOS TÉCNICOS
+
+Antes de implementar:
+
+Mapear toda a estrutura atual do projeto.
+Identificar Models existentes.
+Identificar Services existentes.
+Identificar Controllers existentes.
+Identificar DAOs/Repositórios existentes.
+Seguir exatamente o padrão arquitetural já utilizado.
+Não criar código duplicado.
+Reutilizar componentes visuais existentes.
+Criar migrations necessárias.
+Garantir compatibilidade com dados já existentes.
+
+Ao final, gerar um relatório contendo:
+
+Arquivos criados
+Arquivos alterados
+Tabelas criadas
+Endpoints criados
+Rotas criadas
+Validações implementadas
+Possíveis melhorias futuras
