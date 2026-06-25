@@ -50,8 +50,7 @@ def create_event(payload: ZvZEventCreate, db: Session = Depends(get_db), current
     event = ZvZEvent(**data)
     db.add(event)
     db.flush()
-    if event.status != 'draft':
-        _sync_event_with_discord(event, db)
+    _sync_event_with_discord(event, db)
     db.commit()
     db.refresh(event)
     return event

@@ -15,14 +15,14 @@ def test_create_event_publishes_to_discord_when_service_is_enabled():
         'channel_id': '654321',
         'message_url': 'https://discord.com/channels/1/654321/123456',
     }) as publish_mock:
-        app.dependency_overrides[app.api.routes.events.require_staff] = lambda: fake_user
+        app.dependency_overrides[app.api.routes.events.require_event_manager] = lambda: fake_user
         try:
             response = client.post('/api/events/', json={
                 'guild_id': 1,
                 'title': 'Avalon 8.2',
                 'content_type': 'Dungeon',
                 'event_date': '2026-06-13T23:30:00',
-                'status': 'open',
+                'status': 'draft',
             })
         finally:
             app.dependency_overrides.clear()
